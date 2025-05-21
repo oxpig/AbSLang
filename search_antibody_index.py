@@ -1,0 +1,123 @@
+import faiss
+import numpy as np
+import json
+import torch
+import pandas as pd
+
+from main_module import embed_sequences
+from config import load_mode
+
+
+class FaissSearcher:
+    def __init__(
+        self,
+        faiss_index_file: str,
+        *,
+        csv_file: str | None = None,
+        id_column: str = "id",
+        seq_column: str = "sequence_alignment_aa",
+        device: str = "cuda",
+        mode: str = "paired",
+        nprobe:int | None = None,
+    ):
+        self.device = torch.device(device)
+        self.faiss_index = faiss.read_index(faiss_index_file)
+        if nprobe is not None and hasattr(self.faiss_index, "nprobe"):
+            self.faiss_index.nprobe = nprobe
+        self.df = pd.read_csv(csv_file)
+        self.id_column = id_column
+        self.seq_column = seq_column
+        self.mode = mode
+        #self._metadata = self.df[[id_column, seq_column]].to_dict('records')
+
+        # for d in self._metadata:
+        #     if 'id' not in d:
+        #         d['id'] = None
+        # meta_seq_key = self.seq_column ifcsv_file is not None else 'sequence'
+        if self.id_column in self.df.columns:
+            id_series = self.df[self.id_column]
+        else:
+            id_series = self.df.reset_index().index
+        self._metadata = [{'id': id_val, 'sequence': seq_val}
+                            for id_val, seq_val in zip(id_series,
+                            self.df[self.seq_column])]
+
+        meta_seq_key = 'sequence'
+
+        self.seq_to_row = {d[meta_seq_key]: idx for idx, d in enumerate(self._metadata)}
+        self.lm_emb, self.fallback_lm, self.trans_model, _ = load_mode(self.mode, self.device)
+
+    def search(self, query_sequence: str, k: int = 5) -> list[dict]:
+
+        q_vec = embed_sequences([query_sequence], model=self.trans_model, device=self.device, fallback_model=self.fallback_lm, mode=self.mode, lm_embeddings=self.lm_emb)
+        q_np = q_vec.to(torch.float32).cpu().numpy()
+
+
+        distance, indeces = self.faiss_index.search(q_np, k)
+        results = []
+        for rank, (dist, idx) in enumerate(zip(distance[0], indeces[0]), start=1): 
+            if idx<0:
+                continue
+            meta = self._metadata[idx]
+            results.append({
+                'rank': rank,
+                'distance': float(dist),
+                'id': meta['id'],
+                'sequence': meta['sequence']
+
+            })
+        return results
+
+
+
+
+
+
+
+
+
+"""exampel: 
+from search_antibody_index import FaissSearcher
+
+searcher = FaissSearcher(
+    model_checkpoint = "/vols/opig/users/ewang/Training/Models/Weighted_Euclidean_2U_Hidden_Paired_8Layer_FlashAttn_Feb28_Batch/checkpoints/epoch=2-step=369956-val_pearson_corr=0.7649.ckpt",
+    model_config = "/vols/opig/users/ewang/Training/Models/Weighted_Euclidean_2U_Hidden_Paired_8Layer_FlashAttn_Feb28_Batch/params.json",
+    embeddings_file = '/vols/opig/users/ewang/Training/testpaired_embeddings.pt',
+    faiss_index_file = "/vols/opig/users/ewang/Training/oas_paired_IndexFlatL2_uncompressed.index",
+    sequence_list_file = "/vols/opig/users/ewang/Training/oas_paired_combined_seq.json",
+    device="cuda",
+    mode='paired')
+
+    
+neighbors = searcher.search('EVQLVESGGGLVQPGGSLRLSCAASGFNIKEYYMHWVRQAPGKGLEWVGLIDPEQGNTIYDPKFQDRATISADNSKNTAYLQMNSLRAEDTAVYYCARDTAAYFDYWGQGTLVTVSS|DIQMTQSPSSLSASVGDRVTITCRASRDIKSYLNWYQQKPGKAPKVLIYYATSLAEGVPSRFSGSGSGTDYTLTISSLQPEDFATYYCLQHGESPWTFGQGTKVEIK', k=5)
+   
+"""
+
+"""example for calling clustering: 
+import faiss
+from search_antibody_index import FaissSearcher
+searcher = FaissSearcher(
+    model_checkpoint = "/vols/opig/users/ewang/Training/Models/Weighted_Euclidean_2U_Hidden_Paired_8Layer_FlashAttn_Feb28_Batch/checkpoints/epoch=2-step=369956-val_pearson_corr=0.7649.ckpt",
+    model_config = "/vols/opig/users/ewang/Training/Models/Weighted_Euclidean_2U_Hidden_Paired_8Layer_FlashAttn_Feb28_Batch/params.json",
+    embeddings_file = '/vols/opig/users/ewang/Training/testpaired_embeddings.pt',
+    faiss_index_file = "/vols/opig/users/ewang/Training/oas_paired_combined.index",
+    sequence_list_file = "/vols/opig/users/ewang/Training/oas_paired_combined_seq.json",
+    device="cuda",
+    mode='paired')
+
+k_candidates = range(2, 50)
+threshold = 26.75
+
+best_k, cluster_df = searcher.cluster(
+    k_values=k_candidates,
+    threshold=threshold,
+    n_iter=30,
+    metric=faiss.METRIC_INNER_PRODUCT
+)
+
+if best_k is None:
+    print("No suitable k found.")
+else:
+    print(f"Chosen k={best_k}")
+    print(cluster_df.head(20))
+"""
