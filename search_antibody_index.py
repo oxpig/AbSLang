@@ -68,6 +68,73 @@ class FaissSearcher:
             })
         return results
 
+    def search_by_threshold(
+        self,
+        query_sequence: str,
+        *,
+        threshold: float = 2.0,
+        step: int = 10,
+        max_k: int = 100,
+    ) -> list[dict]:
+        q_vec = embed_sequences(
+            [query_sequence],
+            model=self.trans_model,
+            device=self.device,
+            fallback_model=self.fallback_lm,
+            mode=self.mode,
+            lm_embeddings=self.lm_emb,
+        )
+
+        k = step
+        while True:
+            q_np = q_vec.to(torch.float32).cpu().numpy()
+            distance, indices = self.faiss_index.search(q_np, k)
+
+            valid_idx = [idx for idx in indices[0] if idx >= 0]
+            seqs = [self._metadata[idx]["sequence"] for idx in valid_idx]
+
+            if not seqs:
+                return []
+
+            cand_emb = embed_sequences(
+                seqs,
+                model=self.trans_model,
+                device=self.device,
+                fallback_model=self.fallback_lm,
+                mode=self.mode,
+                lm_embeddings=self.lm_emb,
+            )
+
+            dist_vals = (
+                torch.cdist(
+                    q_vec, cand_emb, p=2
+                )
+                .squeeze(0)
+                .cpu()
+                .tolist()
+            )
+
+            if all(d <= threshold for d in dist_vals) and k < max_k:
+                k += step
+                continue
+            break
+
+        results = []
+        rank = 1
+        for idx, dist in zip(valid_idx, dist_vals):
+            if dist <= threshold:
+                meta = self._metadata[idx]
+                results.append(
+                    {
+                        "rank": rank,
+                        "distance": float(dist),
+                        "id": meta["id"],
+                        "sequence": meta["sequence"],
+                    }
+                )
+                rank += 1
+
+        return results 
 
 
 
