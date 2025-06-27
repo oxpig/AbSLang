@@ -44,6 +44,8 @@ def embed_sequences(
         out_vecs.extend(vecs)
 
     # Stack into a strict 2‑D (N, d) tensor and cast → bfloat16
+    if not out_vecs:
+        raise ValueError("No sequences to embed - input sequence list is empty")
     x = torch.stack(out_vecs)
     return x   # ensure 2-D
 
@@ -63,6 +65,42 @@ def build_ivfpq_index(
     # index = faiss.IndexFlatL2(d) #try with flat l2
     index.add(xb)
     index.nprobe = 10
+    return index
+
+
+def build_ivfpq4_index(
+    embeddings: torch.Tensor,
+    *,
+    nlist: int = 90,
+    m: int = 32,
+    nbits: int = 4,
+) -> faiss.Index:
+    """
+    Build an IVFPQ index with 4-bit quantization.
+    """
+    xb = embeddings.to(torch.float32).cpu().numpy()
+    _, d = xb.shape
+    index = faiss.IndexIVFPQ(faiss.IndexFlatL2(d), d, nlist, m, nbits)
+    index.train(xb)
+    index.add(xb)
+    index.nprobe = 10
+    return index
+
+
+def build_pq_flat_index(
+    embeddings: torch.Tensor,
+    *,
+    m: int = 32,
+    nbits: int = 8,
+) -> faiss.Index:
+    """
+    Build a flat Product Quantizer (PQ) index for exhaustive search.
+    """
+    xb = embeddings.to(torch.float32).cpu().numpy()
+    _, d = xb.shape
+    index = faiss.IndexPQ(d, m, nbits)
+    index.train(xb)
+    index.add(xb)
     return index
 
 

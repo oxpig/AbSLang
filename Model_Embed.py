@@ -5,7 +5,8 @@ from collections import defaultdict
 import os
 import itertools
 import sys
-from embed_structure_model import trans_basic_block, trans_basic_block_Config
+#from embed_structure_model import trans_basic_block, trans_basic_block_Config
+from embed_structure_model_cpu import trans_basic_block, trans_basic_block_Config
 from model import PairedIgT5
 from tqdm import tqdm 
 import matplotlib.pyplot as plt
@@ -234,8 +235,8 @@ def model_embed_with_precomputed(sequences, lmembeddings, model, device):
     padding = torch.zeros((batch_size, seq_len), dtype=torch.bool, device=device)
 
     with torch.no_grad():
-        with autocast(device.type, dtype=torch.bfloat16):
-            embedded_sequence = model(embedding_tensor, src_mask=None, src_key_padding_mask=padding)
+        #with autocast(device.type, dtype=torch.bfloat16): #Not for cpu version
+            embedded_sequence = model(embedding_tensor, attention_mask=None, padding_mask=padding)
             # embedded_sequence shape will be (batch_size, seq_len, embedding_dim)
 
     return embedded_sequence
@@ -446,8 +447,8 @@ def embed_with_fallback(sequences, lmembeddings, model, fallback_igt5, device, m
         pre_embs_clean = [(e.squeeze(0) if e.dim() == 3 else e) for e in pre_embs]
         batch, pad = pad_stack(pre_embs_clean)
         with torch.no_grad():
-            with autocast(device.type, dtype=torch.bfloat16):
-                proc = model(batch, src_mask=None, src_key_padding_mask=pad)
+            #with autocast(device.type, dtype=torch.bfloat16):
+                proc = model(batch, attention_mask=None, padding_mask=pad)
         for k, idx in enumerate(pre_idx):
             results[idx] = proc[k]
 
@@ -461,8 +462,8 @@ def embed_with_fallback(sequences, lmembeddings, model, fallback_igt5, device, m
         fb_embs = [(x.squeeze(0) if x.dim() == 3 else x).to(device) for x in raw]
         batch, pad = pad_stack(fb_embs)
         with torch.no_grad():
-            with autocast(device.type, dtype=torch.bfloat16):
-                proc = model(batch, src_mask=None, src_key_padding_mask=pad)
+            #with autocast(device.type, dtype=torch.bfloat16):
+                proc = model(batch, attention_mask=None, padding_mask=pad)
         for k, idx in enumerate(fb_idx):
             results[idx] = proc[k]
 
@@ -486,7 +487,19 @@ def process_paired_precomputed_fallback(data, sequence_embeddings, model, fallba
     """
     raw_sequences = []
     embeddings = []
-    all_sequences = data["sequence_alignment_aa"].tolist()
+    # Use flexible column name - this function seems to expect a specific column
+    # This should be updated to accept a configurable column name parameter
+    seq_column = "sequence_alignment_aa"  # Default, but should be configurable
+    if seq_column not in data.columns:
+        # Try common alternatives
+        if "Sequence" in data.columns:
+            seq_column = "Sequence"
+        elif "sequence" in data.columns:
+            seq_column = "sequence"
+        else:
+            raise ValueError(f"No sequence column found. Available columns: {list(data.columns)}")
+    
+    all_sequences = data[seq_column].tolist()
 
     for i in tqdm(range(0, len(all_sequences), batch_size), desc="Processing batches"):
         batch_sequences = all_sequences[i:i + batch_size]

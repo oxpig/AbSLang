@@ -639,3 +639,5 @@ class trans_basic_block(pl.LightningModule):
         )
         
         return [optimizer], [scheduler]
+
+ModelConfig = trans_basic_block_Config

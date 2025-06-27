@@ -1,7 +1,7 @@
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"  # One gpu or else igt5 embed breaks
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"  # One gpu or else igt5 breaks?
 import torch
-from main_module import embed_sequences, build_ivfpq_index, pairwise_l2, IndexArtifacts
+from main_module import embed_sequences, build_ivfpq_index, pairwise_l2, IndexArtifacts, build_pq_flat_index
 import adapter
 from config import load_mode
 
@@ -47,7 +47,7 @@ def build_index_from_csv(
         batch_size=batch_size,
     )
     
-    faiss_idx = build_ivfpq_index(embs, nlist=nlist, m=m, nbits=nbits)
+    faiss_idx = build_pq_flat_index(embs, m=m, nbits=nbits)
     dist = pairwise_l2(embs) if save_distance else None
 
     art = IndexArtifacts(faiss_idx, embs, dist, seq_items)

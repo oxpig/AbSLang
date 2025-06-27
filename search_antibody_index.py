@@ -14,9 +14,9 @@ class FaissSearcher:
         faiss_index_file: str,
         *,
         csv_file: str | None = None,
-        id_column: str = "id",
+        id_column: str = "Species",
         seq_column: str = "sequence_alignment_aa",
-        device: str = "cuda",
+        device: str = "cpu",
         mode: str = "paired",
         nprobe:int | None = None,
     ):
@@ -24,6 +24,8 @@ class FaissSearcher:
         self.faiss_index = faiss.read_index(faiss_index_file)
         if nprobe is not None and hasattr(self.faiss_index, "nprobe"):
             self.faiss_index.nprobe = nprobe
+        if csv_file is None:
+            raise ValueError("csv_file cannot be None")
         self.df = pd.read_csv(csv_file)
         self.id_column = id_column
         self.seq_column = seq_column
@@ -53,16 +55,16 @@ class FaissSearcher:
         q_np = q_vec.to(torch.float32).cpu().numpy()
 
 
-        distance, indeces = self.faiss_index.search(q_np, k)
+        distance, indices = self.faiss_index.search(q_np, k)
         results = []
-        for rank, (dist, idx) in enumerate(zip(distance[0], indeces[0]), start=1): 
+        for rank, (dist, idx) in enumerate(zip(distance[0], indices[0]), start=1): 
             if idx<0:
                 continue
             meta = self._metadata[idx]
             results.append({
                 'rank': rank,
-                'distance': float(dist),
-                'id': meta['id'],
+                'distance': np.sqrt(dist),
+                'species': meta['id'],
                 'sequence': meta['sequence']
 
             })
@@ -105,9 +107,13 @@ class FaissSearcher:
                 lm_embeddings=self.lm_emb,
             )
 
+            # Ensure both tensors are float32 for torch.cdist compatibility
+            q_vec_32 = q_vec.to(torch.float32)
+            cand_emb_32 = cand_emb.to(torch.float32)
+
             dist_vals = (
                 torch.cdist(
-                    q_vec, cand_emb, p=2
+                    q_vec_32, cand_emb_32, p=2
                 )
                 .squeeze(0)
                 .cpu()
@@ -187,4 +193,27 @@ if best_k is None:
 else:
     print(f"Chosen k={best_k}")
     print(cluster_df.head(20))
+"""
+
+"""
+example to search by threshold
+from search_antibody_index import FaissSearcher
+searcher = FaissSearcher(
+    faiss_index_file="/vols/opig/projects/ewang-HC_Search_Index/paired_numbered_nonredundant_embeddings_QT4bit.index",
+    csv_file="/vols/opig/projects/ewang-HC_Search_Index/human_oas_paired_non_redundant_by_study.csv",
+    device="cpu",
+    mode="paired"
+)
+
+query_sequence = "QVQLVESGGGVVQPGGSLRLSCAASGFTFSSYGMHWVRQAPGKGLEWVAFIRYDGSNKYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYCAKDSKLCGGDCYPSGRGYFDYWGQGTLVTVSS|QSALTQPRSVSGSPGQSVTISCTGTSSDVGGYNYVSWYQQHPGKAPKLMIYDVSKRPSGVPDRFSGSKSGNTASLTISGLQAEDEADYYCCSYAGSYTYVFGTGTKVTVL
+"
+results=searcher.search(query_sequence, k=10)
+results = searcher.search_by_threshold(
+    query_sequence,
+    threshold=2.0,   # adjust as needed
+    step=10,
+    max_k=100
+)
+for hit in results:
+    print(f"Rank: {hit['rank']}, Distance: {hit['distance']:.3f}, ID: {hit['id']}, Sequence: {hit['sequence']}")
 """
