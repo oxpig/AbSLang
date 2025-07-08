@@ -1,14 +1,12 @@
 # AbSLang
-
-AbSLang is a deep learning framework for antibody structure prediction and analysis. It provides tools for embedding antibody sequences, building search indices, and predicting structural properties like RMSD between antibody pairs.
+Search for structurally similar antibodies from sequence. And predict the structural similarity of antibody pairs from sequence. 
 
 ## Features
 
-- **Sequence Embedding**: Convert antibody sequences into high-dimensional embeddings using pre-trained language models
-- **Structure Prediction**: Predict structural distances (RMSD) between antibody pairs
-- **Similarity Search**: Build and query FAISS indices for fast antibody similarity search
-- **Multiple Input Modes**: Support for paired (heavy+light chain), heavy chain only, and nanobody sequences
-- **Pre-computed Embeddings**: Leverage pre-computed embeddings for faster inference
+- **Sequence Embedding**: Convert antibody sequences into high-dimensional embeddings using outputs from pre-trained language models
+- **Structural Similarity Prediction**: Predict structural distances (RMSD) between antibody pairs
+- **Structure Search**: Build and query FAISS indices for fast antibody similarity search
+- **Sequences**: Support for paired (heavy|light chain), heavy chain only, and nanobody sequences
 
 ## Installation
 
