@@ -6,8 +6,8 @@ import os
 import itertools
 import sys
 #from embed_structure_model import trans_basic_block, trans_basic_block_Config
-from embed_structure_model_cpu import trans_basic_block, trans_basic_block_Config
-from model import PairedIgT5
+from .embed_structure_model_cpu import trans_basic_block, trans_basic_block_Config
+from .model import PairedIgT5
 from tqdm import tqdm 
 import matplotlib.pyplot as plt
 import seaborn as sns

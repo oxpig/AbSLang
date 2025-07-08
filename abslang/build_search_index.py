@@ -1,9 +1,9 @@
 import os
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"  # One gpu or else igt5 breaks?
 import torch
-from main_module import embed_sequences, build_ivfpq_index, pairwise_l2, IndexArtifacts, build_pq_flat_index
-import adapter
-from config import load_mode
+from .main_module import embed_sequences, build_ivfpq_index, pairwise_l2, IndexArtifacts, build_pq_flat_index
+from . import adapter
+from .config import load_mode
 
 
 def build_index_from_csv(

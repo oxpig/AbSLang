@@ -4,8 +4,8 @@ import json
 import torch
 import pandas as pd
 
-from main_module import embed_sequences
-from config import load_mode
+from .main_module import embed_sequences
+from .config import load_mode
 
 
 class FaissSearcher:

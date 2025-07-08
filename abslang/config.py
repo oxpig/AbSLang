@@ -1,5 +1,5 @@
 import torch
-from embed_structure_model_cpu import trans_basic_block, trans_basic_block_Config, ModelConfig
+from .embed_structure_model_cpu import trans_basic_block, trans_basic_block_Config, ModelConfig
 
 from esm.models.esmc import ESMC
 from pathlib import Path 
@@ -46,7 +46,7 @@ def load_mode(mode, device):
     if cfg["fallback_cls"] == "ESMC":
         fallback = ESMC.from_pretrained("esmc_600m").to(device)
     else:  # PairedIgT5 lives in model.py
-        from model import PairedIgT5
+        from .model import PairedIgT5
         fallback = PairedIgT5()
  
     # TM distance predictor

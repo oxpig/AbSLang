@@ -4,8 +4,8 @@ import torch
 import pandas as pd
 from tqdm import tqdm
 from torch import nn
-from Model_Embed import embed_with_fallback
-from config import load_mode
+from .Model_Embed import embed_with_fallback
+from .config import load_mode
 
 
 #data = pd.read_csv('/vols/opig/users/ewang/Training/ABB3_pdb_split/paired_test.csv')

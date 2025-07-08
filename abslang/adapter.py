@@ -6,7 +6,7 @@ import torch
 import faiss
 import numpy as np
 import pandas as pd
-from main_module import IndexArtifacts
+from .main_module import IndexArtifacts
 
 
 #load

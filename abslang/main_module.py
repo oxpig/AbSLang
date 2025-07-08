@@ -5,7 +5,7 @@ from typing import List, Sequence, Optional
 import torch
 import faiss
 import numpy as np
-from Model_Embed import embed_with_fallback
+from .Model_Embed import embed_with_fallback
 
 
 #container
