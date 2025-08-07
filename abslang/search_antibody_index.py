@@ -19,7 +19,23 @@ class FaissSearcher:
         device: str = "cpu",
         mode: str = "paired",
         nprobe:int | None = None,
+        tm_checkpoint_path: str | None = None,
+        tm_config_path: str | None = None,
     ):
+        """
+        Initialize FAISS searcher for antibody similarity search.
+        
+        Args:
+            faiss_index_file: Path to FAISS index file
+            csv_file: Path to CSV with sequence metadata
+            id_column: Column name for sequence IDs
+            seq_column: Column name for sequences
+            device: Device to run models on ('cpu' or 'cuda')
+            mode: Embedding mode ('paired', 'hc', or 'nb')
+            nprobe: Number of clusters to search (for IVF indices)
+            tm_checkpoint_path: Path to transformer model checkpoint
+            tm_config_path: Path to transformer model config JSON
+        """
         self.device = torch.device(device)
         self.faiss_index = faiss.read_index(faiss_index_file)
         if nprobe is not None and hasattr(self.faiss_index, "nprobe"):
@@ -47,7 +63,12 @@ class FaissSearcher:
         meta_seq_key = 'sequence'
 
         self.seq_to_row = {d[meta_seq_key]: idx for idx, d in enumerate(self._metadata)}
-        self.lm_emb, self.fallback_lm, self.trans_model, _ = load_mode(self.mode, self.device)
+        self.lm_emb, self.fallback_lm, self.trans_model, _ = load_mode(
+            self.mode, 
+            self.device,
+            tm_checkpoint_path=tm_checkpoint_path,
+            tm_config_path=tm_config_path
+        )
 
     def search(self, query_sequence: str, k: int = 5) -> list[dict]:
 

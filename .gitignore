@@ -111,4 +111,9 @@ Thumbs.db
 # Output directories
 output/
 results/
-index_out/
+index_out/CLAUDE.md
+example_usage
+example_usage.py
+test_embedding.py
+testing.ipynb
+abslang.egg-info/

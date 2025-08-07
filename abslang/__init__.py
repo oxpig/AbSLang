@@ -21,19 +21,15 @@ from .main_module import (
 
 from .Model_Embed import (
     embed_with_fallback,
-    model_embed_with_precomputed,
-    process_paired_precomputed,
     save_embeddings as save_model_embeddings,
     parse_paired_sequence,
     embed_IgT5,
     embed_ESM_single,
     embed_ESM_HC,
-    process_paired_precomputed_fallback,
 )
 
 from .config import (
     load_mode,
-    MODE_CFG,
 )
 
 # Search functionality
@@ -81,16 +77,12 @@ __all__ = [
     "build_pq_flat_index",
     "pairwise_l2",
     "embed_with_fallback",
-    "model_embed_with_precomputed",
-    "process_paired_precomputed",
     "save_model_embeddings",
     "parse_paired_sequence",
     "embed_IgT5",
     "embed_ESM_single",
     "embed_ESM_HC",
-    "process_paired_precomputed_fallback",
     "load_mode",
-    "MODE_CFG",
     
     # Search
     "FaissSearcher",

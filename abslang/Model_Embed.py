@@ -417,20 +417,35 @@ def embed_ESM_HC(sequences: list, fallback_model) -> list: # Modified to take li
 #     return results # Return list of embeddings in original input order
 
 def embed_with_fallback(sequences, lmembeddings, model, fallback_igt5, device, mode='paired'):
-    n = len(sequences)
-    results = [None] * n
-
-    pre_idx, pre_embs = [], []
-    fb_idx, fb_seqs = [], []
-    for i, seq in enumerate(sequences):
-        emb = lmembeddings.get(seq)
-        if emb is not None:
-            pre_idx.append(i)
-            pre_embs.append(emb.to(device))
-        else:
-            fb_idx.append(i)
-            fb_seqs.append(seq)
-
+    """
+    Embed sequences from scratch using the appropriate language model.
+    Since we no longer use precomputed embeddings, all sequences go through the fallback path.
+    
+    Args:
+        sequences: List of sequences to embed
+        lmembeddings: Ignored (kept for backward compatibility)
+        model: Transformer model for final embedding
+        fallback_igt5: Primary language model (IgT5 for paired, ESMC for hc/nb)
+        device: Device to run models on
+        mode: 'paired', 'hc', or 'nb'
+    
+    Returns:
+        List of embedded sequences
+    """
+    if not sequences:
+        return []
+    
+    # Get raw embeddings from language model
+    if mode == 'paired':
+        raw = embed_IgT5(sequences, fallback_igt5)
+    elif mode in ('hc', 'nb'):
+        raw = embed_ESM_HC(sequences, fallback_igt5)
+    else:
+        raise ValueError(f'Invalid embedding mode: {mode}')
+    
+    # Process embeddings through transformer model
+    fb_embs = [(x.squeeze(0) if x.dim() == 3 else x).to(device) for x in raw]
+    
     def pad_stack(txs):
         m = max(t.shape[0] for t in txs)
         d = txs[0].shape[1]
@@ -442,31 +457,12 @@ def embed_with_fallback(sequences, lmembeddings, model, fallback_igt5, device, m
             out[j, :l] = t
             mask[j, l:] = True
         return out, mask
-
-    if pre_embs:
-        pre_embs_clean = [(e.squeeze(0) if e.dim() == 3 else e) for e in pre_embs]
-        batch, pad = pad_stack(pre_embs_clean)
-        with torch.no_grad():
-            #with autocast(device.type, dtype=torch.bfloat16):
-                proc = model(batch, attention_mask=None, padding_mask=pad)
-        for k, idx in enumerate(pre_idx):
-            results[idx] = proc[k]
-
-    if fb_seqs:
-        if mode == 'paired':
-            raw = embed_IgT5(fb_seqs, fallback_igt5)
-        elif mode in ('hc', 'nb'):
-            raw = embed_ESM_HC(fb_seqs, fallback_igt5)
-        else:
-            raise ValueError('Invalid embedding mode')
-        fb_embs = [(x.squeeze(0) if x.dim() == 3 else x).to(device) for x in raw]
-        batch, pad = pad_stack(fb_embs)
-        with torch.no_grad():
-            #with autocast(device.type, dtype=torch.bfloat16):
-                proc = model(batch, attention_mask=None, padding_mask=pad)
-        for k, idx in enumerate(fb_idx):
-            results[idx] = proc[k]
-
+    
+    batch, pad = pad_stack(fb_embs)
+    with torch.no_grad():
+        proc = model(batch, attention_mask=None, padding_mask=pad)
+    
+    results = [proc[i] for i in range(len(sequences))]
     return results
 
 def process_paired_precomputed_fallback(data, sequence_embeddings, model, fallback_igt5, device, mode="paired", batch_size=128): # set batch_size to 128 as requested

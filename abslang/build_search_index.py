@@ -21,6 +21,8 @@ def build_index_from_csv(
     write_index=True,
     write_embeddings=True,
     write_sequences=True,
+    tm_checkpoint_path=None,
+    tm_config_path=None,
 ):
     """
     Build index from CSV file.
@@ -30,9 +32,13 @@ def build_index_from_csv(
     - write_index: whether to write the index file
     - write_embeddings: whether to write the embeddings file
     - write_sequences: whether to write the sequences file
+    - tm_checkpoint_path: Path to transformer model checkpoint
+    - tm_config_path: Path to transformer model config JSON
     """
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    lm_emb, fallback_lm, trans_model, _ = load_mode(mode, device)
+    lm_emb, fallback_lm, trans_model, _ = load_mode(
+        mode, device, tm_checkpoint_path=tm_checkpoint_path, tm_config_path=tm_config_path
+    )
 
     seq_items = adapter.read_sequences_csv(csv_path, id_column, seq_column)
     seqs = [s["sequence"] for s in seq_items]

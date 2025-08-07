@@ -262,9 +262,18 @@ class StructuralEmbeddingModel(nn.Module if not HAS_TRAINING_DEPS else pl.Lightn
 
     @classmethod
     def load_from_checkpoint(cls, checkpoint_path: str, config: ModelConfig):
-        """Load model from checkpoint file"""
+        """Load model from checkpoint file with module name remapping"""
+        import sys
+        
+        # Add module alias for backward compatibility with old checkpoints
+        # This allows old checkpoints that reference 'embed_structure_model' to work
+        if 'embed_structure_model' not in sys.modules:
+            sys.modules['embed_structure_model'] = sys.modules[__name__]
+        
         model = cls(config)
-        checkpoint = torch.load(checkpoint_path, map_location='cpu')
+        
+        # Load checkpoint with weights_only=False to support full unpickling
+        checkpoint = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
         
         # Handle both Lightning and regular PyTorch checkpoints
         if "state_dict" in checkpoint:
@@ -277,8 +286,14 @@ class StructuralEmbeddingModel(nn.Module if not HAS_TRAINING_DEPS else pl.Lightn
     @classmethod
     def load_with_config_flexibility(cls, checkpoint_path: str, config: ModelConfig):
         """Load model with flexible parameter matching"""
+        import sys
+        
+        # Add module alias for backward compatibility
+        if 'embed_structure_model' not in sys.modules:
+            sys.modules['embed_structure_model'] = sys.modules[__name__]
+        
         model = cls(config)
-        checkpoint = torch.load(checkpoint_path, map_location='cpu')
+        checkpoint = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
         
         # Extract state dict
         if "state_dict" in checkpoint:

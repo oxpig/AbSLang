@@ -17,9 +17,13 @@ def infer_rmsd(
     seq2_col: str = "Seq2",
     batch_size: int = 128,
     out_path: str | None = None,
+    tm_checkpoint_path: str | None = None,
+    tm_config_path: str | None = None,
 ) -> pd.DataFrame:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    lm_embeddings, fallback_model, model, _ = load_mode(mode, device)
+    lm_embeddings, fallback_model, model, _ = load_mode(
+        mode, device, tm_checkpoint_path=tm_checkpoint_path, tm_config_path=tm_config_path
+    )
 
     df = pd.read_csv(csv_path)
     if seq1_col not in df.columns or seq2_col not in df.columns:
