@@ -117,3 +117,5 @@ example_usage.py
 test_embedding.py
 testing.ipynb
 abslang.egg-info/
+lightning_logs/
+train_search/

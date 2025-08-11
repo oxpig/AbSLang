@@ -4,7 +4,7 @@ import torch
 import pandas as pd
 from tqdm import tqdm
 from torch import nn
-from .Model_Embed import embed_with_fallback
+from .model_embed import embed_with_fallback
 from .config import load_mode
 
 
@@ -17,8 +17,8 @@ def infer_rmsd(
     seq2_col: str = "Seq2",
     batch_size: int = 128,
     out_path: str | None = None,
-    tm_checkpoint_path: str | None = None,
-    tm_config_path: str | None = None,
+    tm_checkpoint_path: str,
+    tm_config_path: str,
 ) -> pd.DataFrame:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     lm_embeddings, fallback_model, model, _ = load_mode(
@@ -36,9 +36,8 @@ def infer_rmsd(
         batch = unique[i : i + batch_size]
         vecs = embed_with_fallback(
             sequences=batch,
-            lmembeddings=lm_embeddings,
             model=model,
-            fallback_igt5=fallback_model,
+            fallback_lm=fallback_model,
             device=device,
             mode=mode,
         )
@@ -56,6 +55,171 @@ def infer_rmsd(
         print(f"Results written to {out_path}")
 
     return df
+
+
+def predict_cdr_rmsd(
+    seq1: str,
+    seq2: str,
+    *,
+    mode: str = "paired",
+    device: str | None = None,
+    tm_checkpoint_path: str,
+    tm_config_path: str,
+) -> float:
+    """
+    Predict CDR RMSD between two antibody sequences.
+    
+    Args:
+        seq1: First antibody sequence
+        seq2: Second antibody sequence  
+        mode: Embedding mode ('paired', 'hc', or 'nb')
+        device: Device to run on ('cpu', 'cuda', or None for auto)
+        tm_checkpoint_path: Path to transformer model checkpoint (required)
+        tm_config_path: Path to transformer model config JSON (required)
+        
+    Returns:
+        Predicted RMSD value as float
+        
+    Raises:
+        ValueError: If sequences are invalid for the specified mode
+        RuntimeError: If model loading fails
+    """
+    # Input validation
+    if not seq1 or not seq2:
+        raise ValueError("Both sequences must be non-empty")
+        
+    if mode == "paired":
+        if "|" not in seq1 or "|" not in seq2:
+            raise ValueError("Paired mode requires sequences with '|' separator (heavy|light)")
+    elif mode in ("hc", "nb"):
+        if "|" in seq1 or "|" in seq2:
+            raise ValueError(f"Mode '{mode}' expects single chain sequences without '|' separator")
+    else:
+        raise ValueError(f"Invalid mode '{mode}'. Must be 'paired', 'hc', or 'nb'")
+    
+    # Device setup
+    if device is None:
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+    device_obj = torch.device(device)
+    
+    # Load models
+    try:
+        lm_embeddings, fallback_model, model, _ = load_mode(
+            mode, device_obj, tm_checkpoint_path=tm_checkpoint_path, tm_config_path=tm_config_path
+        )
+    except Exception as e:
+        raise RuntimeError(f"Failed to load models: {e}")
+    
+    # Embed both sequences
+    try:
+        vecs = embed_with_fallback(
+            sequences=[seq1, seq2],
+            model=model,
+            fallback_lm=fallback_model,
+            device=device_obj,
+            mode=mode,
+        )
+        
+        if len(vecs) != 2:
+            raise RuntimeError(f"Expected 2 embeddings, got {len(vecs)}")
+            
+        emb1, emb2 = vecs[0], vecs[1]
+        
+    except Exception as e:
+        raise RuntimeError(f"Failed to embed sequences: {e}")
+    
+    # Calculate pairwise distance
+    # Handle different embedding dimensions from transformer vs language-model-only
+    emb1_dev = emb1.to(device_obj)
+    emb2_dev = emb2.to(device_obj)
+    
+    # If embeddings are high-dimensional (language model output), use mean pooling
+    if emb1_dev.dim() > 1:
+        emb1_dev = emb1_dev.mean(dim=0)  # Mean pool over sequence length
+    if emb2_dev.dim() > 1:
+        emb2_dev = emb2_dev.mean(dim=0)  # Mean pool over sequence length
+        
+    # Ensure 1D tensors for PairwiseDistance
+    emb1_dev = emb1_dev.squeeze()
+    emb2_dev = emb2_dev.squeeze()
+    
+    # Calculate L2 distance
+    rmsd = torch.norm(emb1_dev - emb2_dev, p=2).item()
+    
+    return rmsd
+
+
+def predict_cdr_rmsd_batch(
+    sequence_pairs: list[tuple[str, str]],
+    *,
+    mode: str = "paired",
+    device: str | None = None,
+    tm_checkpoint_path: str,
+    tm_config_path: str,
+    batch_size: int = 128,
+) -> list[float]:
+    """
+    Predict CDR RMSD for multiple sequence pairs efficiently.
+    
+    Args:
+        sequence_pairs: List of (seq1, seq2) tuples
+        mode: Embedding mode ('paired', 'hc', or 'nb')  
+        device: Device to run on ('cpu', 'cuda', or None for auto)
+        tm_checkpoint_path: Path to transformer model checkpoint (required)
+        tm_config_path: Path to transformer model config JSON (required)
+        batch_size: Batch size for processing
+        
+    Returns:
+        List of predicted RMSD values
+    """
+    if not sequence_pairs:
+        return []
+        
+    # Device setup
+    if device is None:
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+    device_obj = torch.device(device)
+    
+    # Load models
+    lm_embeddings, fallback_model, model, _ = load_mode(
+        mode, device_obj, tm_checkpoint_path=tm_checkpoint_path, tm_config_path=tm_config_path
+    )
+    
+    # Get unique sequences and build cache
+    unique_seqs = list(set(seq for pair in sequence_pairs for seq in pair))
+    cache: dict[str, torch.Tensor] = {}
+    
+    for i in tqdm(range(0, len(unique_seqs), batch_size), desc="Embedding unique sequences"):
+        batch = unique_seqs[i : i + batch_size]
+        vecs = embed_with_fallback(
+            sequences=batch,
+            model=model,
+            fallback_lm=fallback_model,
+            device=device_obj,
+            mode=mode,
+        )
+        for s, v in zip(batch, vecs):
+            cache[s] = v.cpu()
+    
+    # Calculate distances for all pairs
+    results = []
+    for s1, s2 in sequence_pairs:
+        emb1 = cache[s1].to(device_obj)
+        emb2 = cache[s2].to(device_obj)
+        
+        # Handle different embedding dimensions
+        if emb1.dim() > 1:
+            emb1 = emb1.mean(dim=0)  # Mean pool over sequence length
+        if emb2.dim() > 1:
+            emb2 = emb2.mean(dim=0)  # Mean pool over sequence length
+            
+        # Ensure 1D tensors and calculate L2 distance
+        emb1 = emb1.squeeze()
+        emb2 = emb2.squeeze()
+        rmsd = torch.norm(emb1 - emb2, p=2).item()
+        results.append(rmsd)
+    
+    return results
 
 
 if __name__ == "__main__":

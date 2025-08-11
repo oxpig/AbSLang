@@ -16,12 +16,23 @@ def load_mode(mode, device, tm_checkpoint_path=None, tm_config_path=None):
     Args:
         mode: 'paired', 'hc', or 'nb'
         device: torch device to load models on
-        tm_checkpoint_path: Path to transformer model checkpoint
-        tm_config_path: Path to transformer model config JSON
+        tm_checkpoint_path: Path to transformer model checkpoint (required)
+        tm_config_path: Path to transformer model config JSON (required)
     
     Returns:
         Tuple of (empty_dict, language_model, transformer_model, constant)
+    
+    Raises:
+        ValueError: If transformer model paths are not provided
     """
+    # Validate transformer model paths are provided
+    if not tm_checkpoint_path or not tm_config_path:
+        raise ValueError(
+            "Transformer model is required for structure-aware embeddings. "
+            "Please provide both tm_checkpoint_path and tm_config_path. "
+            "The language model embeddings alone have no structural meaning."
+        )
+    
     # Determine fallback model class based on mode
     fallback_cls = "PairedIgT5" if mode == "paired" else "ESMC"
     
@@ -35,16 +46,17 @@ def load_mode(mode, device, tm_checkpoint_path=None, tm_config_path=None):
         from .model import PairedIgT5
         fallback = PairedIgT5()
     
-    # Load transformer model if paths are provided
-    if tm_checkpoint_path and tm_config_path:
+    # Load transformer model (now mandatory)
+    try:
         tm_model = trans_basic_block.load_from_checkpoint(
             tm_checkpoint_path,
             config=trans_basic_block_Config.from_json(tm_config_path)
         ).to(device).eval()
-    else:
-        # If no paths provided, return None for transformer model
-        # This allows using the language models without the transformer
-        tm_model = None
+    except Exception as e:
+        raise RuntimeError(
+            f"Failed to load transformer model from {tm_checkpoint_path} "
+            f"with config {tm_config_path}: {e}"
+        )
     
     # Return constant value (used for scaling, kept for compatibility)
     const = 28.0

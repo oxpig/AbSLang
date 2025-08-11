@@ -1,21 +1,20 @@
 # AbSLang
-Search for structurally similar antibodies from sequence. And predict the structural similarity of antibody pairs from sequence. 
+Search for structurally similar antibodies (CDRs) from sequence. 
 
 ## Features
 
-- **Sequence Embedding**: Convert antibody sequences into high-dimensional embeddings using outputs from pre-trained language models
-- **Structural Similarity Prediction**: Predict structural distances (RMSD) between antibody pairs
-- **Structure Search**: Build and query FAISS indices for fast antibody similarity search
-- **Sequences**: Support for paired (heavy|light chain), heavy chain only, and nanobody sequences
+- **Structure-aware embeddings**: Sequence level embeddings generated from sequences. 
+- **Similarity search**: FAISS index used for efficient search.
+- **RMSD prediction**: Estimate structural distance between antibody pairs directly from sequence.
+- **Supported inputs**: `paired` (heavy|light), `hc` (heavy chain), `nb` (VHH).
 
 ## Installation
 
 ### Prerequisites
 
 - Python 3.10
-- Conda to install dependencies
 
-### Setting up the Environment
+### Environment Setup
 
 1. Clone the repository:
 ```bash
@@ -23,9 +22,11 @@ git clone https://github.com/ericjidawang/AbSLang.git
 cd AbSLang
 ```
 
-2. Create the conda environment called database: 
+2. Create the conda environment:
 ```bash
 conda env create -f env.yml
+#for cpu compatible version
+conda env create -f cpu_env.yml
 ```
 
 3. Activate the environment:
@@ -33,53 +34,98 @@ conda env create -f env.yml
 conda activate database
 ```
 
-## Quick Start
 
-See `search_example.ipynb` for an example.
 
-### Searching an Antibody Index
+## Start
+
+### Build an Index from CSV
 
 ```python
-# Searching an index using a specific sequence
-from abslang.search_antibody_index import FaissSearcher
+from abslang.build_search_index import build_index_from_csv
 
-# Initialize searcher with pre-built index
-searcher = FaissSearcher(
-    faiss_index_file="ewang-HC_Search_Index/paired_numbered_nonredundant_embeddings_QT4bit.index",  # index file
-    csv_file="ewang-HC_Search_Index/human_oas_paired_non_redundant_by_study.csv",  # corresponding csv with sequence and global IDs
-    device="cpu",
-    mode="paired"
+artifacts = build_index_from_csv(
+    csv_path="/path/to/sequences.csv",
+    mode="paired",  # 'paired', 'hc', or 'nb'
+    id_column="id", 
+    seq_column="sequence_alignment_aa", #header for sequences
+    out_dir="index_out", #directory that the outputs will be saved to
+    index_type="pq",  # 'flat' | 'pq' | 'ivfpq'
+    tm_checkpoint_path="/path/to/checkpoint.ckpt",
+    tm_config_path="/path/to/config.json",
 )
 
-# Define query sequence (HC|LC format)
-query_sequence = "QVQLVESGGGVVQPGGSLRLSCAASGFTFSSYGMHWVRQAPGKGLEWVAFIRYDGSNKYYADSVKGRFTISRDNSKNTLYLQMNSLRAEDTAVYYCAKDSKLCGGDCYPSGRGYFDYWGQGTLVTVSS|QSALTQPRSVSGSPGQSVTISCTGTSSDVGGYNYVSWYQQHPGKAPKLMIYDVSKRPSGVPDRFSGSKSGNTASLTISGLQAEDEADYYCCSYAGSYTYVFGTGTKVTVL"
-
-# Search for k most similar antibodies
-results = searcher.search(query_sequence, k=10)  # number of results to return
-print(results)
-
-# Alternatively search by CDR RMSD threshold
-results = searcher.search_by_threshold(
-    query_sequence,
-    threshold=2.0,   # Average CDR RMSD threshold
-    step=10,         # Step size for the search
-    max_k=100
-)
-# Note: igt5 is pretty slow on cpu, so maybe use a smaller max_k or smaller step
+# Writes: index.{type}, seq_list.json, artifacts.json
 ```
 
-## Model Modes
+CSV requirements:
+- Default columns: `id`, `sequence_alignment_aa` (customizable via `id_column`, `seq_column`).
+- Mode vs sequence format:
+  - `paired`: sequences must contain `|` (format: `HC|LC`).
+  - `hc`/`nb`: sequences must not contain `|`.
 
-AbSLang supports three input modes:
+### Search an Index
 
-- **paired**: Heavy + Light chain pairs (format: "HC|LC", separated by "|")
-- **hc**: Heavy chain only sequences
-- **nb**: VHH sequences
+```python
+from abslang.search_antibody_index import FaissSearcher
+
+searcher = FaissSearcher(
+    faiss_index_file="index_out/index.pq",
+    csv_file="/path/to/sequences.csv",  # corresponding CSV used to build the index
+    device="cpu",
+    mode="paired",
+    tm_checkpoint_path="/path/to/checkpoint.ckpt",
+    tm_config_path="/path/to/config.json",
+)
+
+# Query (HC|LC for paired mode)
+query = "HeavyChain|LightChain"
+
+# Top‑k search (distances are Euclidean; FAISS returns L2 squared distance which is sqrt transformed)
+results = searcher.search(query, k=10) #configure the number of nearest matches returned. 
+
+# Threshold search
+results_thresh = searcher.search_by_threshold(
+    query,
+    threshold=2.0,     # Euclidean distance
+    max_k=100,         # candidates to retrieve once
+    reembed=True,     # True:Returns exact distance
+)
+```
+
+### Predict RMSD Between Sequences
+
+```python
+from abslang import predict_cdr_rmsd, predict_cdr_rmsd_batch
+
+# Single pair
+r = predict_cdr_rmsd(
+    "HC1...|LC1...", "HC2...|LC2...", 
+    mode="paired",
+    tm_checkpoint_path="/path/to/checkpoint.ckpt",
+    tm_config_path="/path/to/config.json",
+)
+
+# Batch
+pairs = [("HC1|LC1", "HC2|LC2"), ("HC3|LC3", "HC4|LC4")] #list
+rs = predict_cdr_rmsd_batch(
+    pairs,
+    mode="paired",
+    tm_checkpoint_path="/path/to/checkpoint.ckpt",
+    tm_config_path="/path/to/config.json",
+)
+```
+
+## Index Types
+
+- `flat`: Exact, large memory footprint, fast queries for small datasets.
+- `pq`: Product quantization (approximate), small index, good baseline.
+- `ivfpq`: Inverted file + PQ (approximate), scalable to large datasets. Tune `nprobe` in FAISS for recall.
+
+PQ parameter validation:
+- If the embedding dimension `d` is not divisible by `m`, `m` is auto-adjusted to a nearby divisor.
+- For IVFPQ, `nlist` is auto‑set from dataset size if omitted.
 
 ## Configuration
 
-The model paths and configurations are defined in `config.py`. You maybe need to update the base path to point to your model files:
-
-```python
-base = Path("path_to_checkpoints")
-```
+- AbSLang requires a checkpoint and a matching JSON config.
+- `paired` mode uses IgT5 as the language model; `hc`/`nb` use ESMC (esmc_600m).

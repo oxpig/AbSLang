@@ -11,7 +11,44 @@ from .main_module import IndexArtifacts
 
 #load
 def read_sequences_csv(path: str | Path, id_col: str, seq_col: str) -> List[Dict]:
+    """
+    Read sequences from CSV file with validation.
+    
+    Args:
+        path: Path to CSV file
+        id_col: Column name for sequence IDs
+        seq_col: Column name for sequences
+    
+    Returns:
+        List of dicts with 'id' and 'sequence' keys
+    
+    Raises:
+        FileNotFoundError: If CSV file doesn't exist
+        ValueError: If required columns are missing
+    """
+    path = Path(path)
+    if not path.exists():
+        raise FileNotFoundError(f"CSV file not found: {path}")
+    
     df = pd.read_csv(path)
+    
+    # Validate required columns exist
+    missing_cols = []
+    if id_col not in df.columns:
+        missing_cols.append(id_col)
+    if seq_col not in df.columns:
+        missing_cols.append(seq_col)
+    
+    if missing_cols:
+        raise ValueError(
+            f"Missing required columns {missing_cols} in CSV. "
+            f"Available columns: {list(df.columns)}"
+        )
+    
+    # Check for empty dataframe
+    if len(df) == 0:
+        raise ValueError(f"CSV file is empty: {path}")
+    
     return [{"id": r[id_col], "sequence": r[seq_col]} for _, r in df.iterrows()]
 
 
@@ -45,23 +82,35 @@ def dump_artifacts(
     write_embeddings: bool = True,
     write_distance: bool = True,
     write_sequences: bool = True,
+    index_type: str = "ivfpq",
 ) -> None:
     """
     Persist selected artefacts to *out_dir*.
 
     All write_* flags default to **True** so existing callers keep the
-    old behaviour.  Example for “embeddings-only”:
+    old behaviour.  Example for "embeddings-only":
 
         dump_artifacts(art, "out",
                        write_index=False,
                        write_distance=False,
                        write_sequences=False)
+    
+    Args:
+        art: IndexArtifacts object containing the data
+        out_dir: Output directory
+        write_index: Whether to write the FAISS index
+        write_embeddings: Whether to write embeddings
+        write_distance: Whether to write distance matrix
+        write_sequences: Whether to write sequence list
+        index_type: Type of index ('ivfpq', 'pq', 'flat') for filename
     """
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
 
     if write_index:
-        save_faiss_index(art.faiss_index, out / "index.ivfpq")
+        # Use appropriate extension based on index type
+        index_ext = index_type if index_type in ('ivfpq', 'pq', 'flat') else 'index'
+        save_faiss_index(art.faiss_index, out / f"index.{index_ext}")
 
     if write_embeddings:
         save_embeddings(art.embeddings, out / "embeddings.pt")

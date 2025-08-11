@@ -9,103 +9,27 @@ and predicting structural properties like RMSD between antibody pairs.
 __version__ = "0.1.0"
 __author__ = "Eric Wang"
 
-# Core functionality imports
-from .main_module import (
-    IndexArtifacts,
-    embed_sequences,
-    build_ivfpq_index,
-    build_ivfpq4_index,
-    build_pq_flat_index,
-    pairwise_l2,
-)
-
-from .Model_Embed import (
-    embed_with_fallback,
-    save_embeddings as save_model_embeddings,
-    parse_paired_sequence,
-    embed_IgT5,
-    embed_ESM_single,
-    embed_ESM_HC,
-)
-
-from .config import (
-    load_mode,
-)
-
-# Search functionality
+# Core public API - stable entry points only
 from .search_antibody_index import FaissSearcher
-
-# Inference utilities
-from .Large_RMSD_Inference import infer_rmsd
-
-# Model components
-from .model import (
-    ProtTrans,
-    ProtTransEmbedder,
-    ProtT5,
-    PairedIgT5,
-    ProtBert,
-)
-
-from .embed_structure_model_cpu import (
-    trans_basic_block,
-    trans_basic_block_Config,
-    ModelConfig,
-)
-
-# Adapter functionality
-from .adapter import (
-    read_sequences_csv,
-    load_stacked_embeddings,
-    save_faiss_index,
-    save_embeddings,
-    save_distance_matrix,
-    save_sequence_list,
-    dump_artifacts,
-)
+from .large_rmsd_inference import predict_cdr_rmsd, predict_cdr_rmsd_batch
+from .build_search_index import build_index_from_csv
+from .config import load_mode
 
 __all__ = [
     # Version info
     "__version__",
     "__author__",
     
-    # Core classes and functions
-    "IndexArtifacts",
-    "embed_sequences",
-    "build_ivfpq_index",
-    "build_ivfpq4_index",
-    "build_pq_flat_index",
-    "pairwise_l2",
-    "embed_with_fallback",
-    "save_model_embeddings",
-    "parse_paired_sequence",
-    "embed_IgT5",
-    "embed_ESM_single",
-    "embed_ESM_HC",
-    "load_mode",
-    
-    # Search
+    # Main API - Search
     "FaissSearcher",
     
-    # Inference
-    "infer_rmsd",
+    # Main API - RMSD Prediction
+    "predict_cdr_rmsd",
+    "predict_cdr_rmsd_batch",
     
-    # Models
-    "ProtTrans",
-    "ProtTransEmbedder",
-    "ProtT5",
-    "PairedIgT5",
-    "ProtBert",
-    "trans_basic_block",
-    "trans_basic_block_Config",
-    "ModelConfig",
+    # Main API - Index Building
+    "build_index_from_csv",
     
-    # Adapter utilities
-    "read_sequences_csv",
-    "load_stacked_embeddings",
-    "save_faiss_index",
-    "save_embeddings",
-    "save_distance_matrix",
-    "save_sequence_list",
-    "dump_artifacts",
+    # Configuration helper
+    "load_mode",
 ]

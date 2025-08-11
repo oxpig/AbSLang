@@ -1,0 +1,34 @@
+name: database
+channels:
+  - pytorch
+  - defaults
+  - conda-forge
+dependencies:
+  - python=3.10
+  - pytorch
+  - torchaudio
+  - torchvision
+  - faiss-cpu
+  - pandas
+  - numpy
+  - scikit-learn
+  - matplotlib
+  - seaborn
+  - pip
+  - pip:
+      - biopython
+      - biotite
+      - transformers
+      - einops
+      - lightning
+      - huggingface-hub
+      - sentencepiece
+      - tokenizers
+      - tqdm
+      - ipython
+      - hnswlib
+      - ninja
+      #- flash-attn
+      - esm
+      - accelerate
+      - httpx
