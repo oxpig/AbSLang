@@ -31,22 +31,27 @@ def embed_sequences(
     seqs = list(seqs)
     chunks = [seqs[i : i + batch_size] for i in range(0, len(seqs), batch_size)]
 
-    out_vecs = []
+    # Accumulate embeddings on CPU to avoid GPU OOM for large datasets.
+    out_vecs_cpu: list[torch.Tensor] = []
     for chunk in chunks:
-        vecs = embed_with_fallback(
+        vecs_gpu = embed_with_fallback(
             sequences=chunk,
             model=model,
             fallback_lm=fallback_model,
             device=device,
             mode=mode,
         )
-        out_vecs.extend(vecs)
+        # Move each item to CPU immediately to free GPU memory early
+        out_vecs_cpu.extend([v.detach().to("cpu") for v in vecs_gpu])
+        # Best-effort GPU memory trim
+        if device.type == "cuda":
+            del vecs_gpu
+            torch.cuda.empty_cache()
 
-    # Stack into a strict 2‑D (N, d) tensor and cast → bfloat16
-    if not out_vecs:
+    if not out_vecs_cpu:
         raise ValueError("No sequences to embed - input sequence list is empty")
-    x = torch.stack(out_vecs)
-    return x   # ensure 2-D
+    x = torch.stack(out_vecs_cpu)  # CPU tensor (N, d)
+    return x
 
 
 #building index code
