@@ -66,24 +66,7 @@ def predict_cdr_rmsd(
     tm_checkpoint_path: str,
     tm_config_path: str,
 ) -> float:
-    """
-    Predict CDR RMSD between two antibody sequences.
-    
-    Args:
-        seq1: First antibody sequence
-        seq2: Second antibody sequence  
-        mode: Embedding mode ('paired', 'hc', or 'nb')
-        device: Device to run on ('cpu', 'cuda', or None for auto)
-        tm_checkpoint_path: Path to transformer model checkpoint (required)
-        tm_config_path: Path to transformer model config JSON (required)
-        
-    Returns:
-        Predicted RMSD value as float
-        
-    Raises:
-        ValueError: If sequences are invalid for the specified mode
-        RuntimeError: If model loading fails
-    """
+
     # Input validation
     if not seq1 or not seq2:
         raise ValueError("Both sequences must be non-empty")
@@ -162,24 +145,17 @@ def predict_cdr_rmsd_batch(
     
     Args:
         sequence_pairs: List of (seq1, seq2) tuples
-        mode: Embedding mode ('paired', 'hc', or 'nb')  
-        device: Device to run on ('cpu', 'cuda', or None for auto)
-        tm_checkpoint_path: Path to transformer model checkpoint (required)
-        tm_config_path: Path to transformer model config JSON (required)
+        mode: paired, hc, nb
         batch_size: Batch size for processing
-        
-    Returns:
-        List of predicted RMSD values
     """
     if not sequence_pairs:
         return []
         
-    # Device setup
     if device is None:
         device = "cuda" if torch.cuda.is_available() else "cpu"
     device_obj = torch.device(device)
     
-    # Load models
+
     lm_embeddings, fallback_model, model, _ = load_mode(
         mode, device_obj, tm_checkpoint_path=tm_checkpoint_path, tm_config_path=tm_config_path
     )
@@ -200,7 +176,6 @@ def predict_cdr_rmsd_batch(
         for s, v in zip(batch, vecs):
             cache[s] = v.cpu()
     
-    # Calculate distances for all pairs
     results = []
     for s1, s2 in sequence_pairs:
         emb1 = cache[s1].to(device_obj)
