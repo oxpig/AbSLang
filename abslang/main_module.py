@@ -68,10 +68,11 @@ def build_ivfpq_index(
     # Validate PQ parameters
     if d % m != 0:
         import math
+        import warnings
         divisors = [i for i in range(1, min(d, 64) + 1) if d % i == 0]
         old_m = m
         m = min(divisors, key=lambda x: abs(x - old_m))
-        print(f"Warning: Adjusted m from {old_m} to {m} to divide d={d}")
+        warnings.warn(f"Adjusted m from {old_m} to {m} to divide d={d}")
     
     index = faiss.IndexIVFPQ(faiss.IndexFlatL2(d), d, nlist, m, nbits)
     index.train(xb)
@@ -80,32 +81,7 @@ def build_ivfpq_index(
     return index
 
 
-def build_ivfpq4_index(
-    embeddings: torch.Tensor,
-    *,
-    nlist: int = 90,
-    m: int = 32,
-    nbits: int = 4,
-) -> faiss.Index:
-    """
-    Build an IVFPQ index with 4-bit quantization.
-    """
-    xb = embeddings.to(torch.float32).cpu().numpy()
-    _, d = xb.shape
-    
-    # Validate PQ parameters
-    if d % m != 0:
-        import math
-        divisors = [i for i in range(1, min(d, 64) + 1) if d % i == 0]
-        old_m = m
-        m = min(divisors, key=lambda x: abs(x - old_m))
-        print(f"Warning: Adjusted m from {old_m} to {m} to divide d={d}")
-    
-    index = faiss.IndexIVFPQ(faiss.IndexFlatL2(d), d, nlist, m, nbits)
-    index.train(xb)
-    index.add(xb)
-    index.nprobe = 10
-    return index
+# Removed: build_ivfpq4_index (unused wrapper; use build_ivfpq_index with nbits=4)
 
 
 def build_pq_flat_index(
@@ -123,10 +99,11 @@ def build_pq_flat_index(
     # Validate PQ parameters
     if d % m != 0:
         import math
+        import warnings
         divisors = [i for i in range(1, min(d, 64) + 1) if d % i == 0]
         old_m = m
         m = min(divisors, key=lambda x: abs(x - old_m))
-        print(f"Warning: Adjusted m from {old_m} to {m} to divide d={d}")
+        warnings.warn(f"Adjusted m from {old_m} to {m} to divide d={d}")
     
     index = faiss.IndexPQ(d, m, nbits)
     index.train(xb)

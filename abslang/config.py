@@ -2,8 +2,6 @@ import torch
 from .embed_structure_model_cpu import trans_basic_block, trans_basic_block_Config, ModelConfig
 
 from esm.models.esmc import ESMC
-from pathlib import Path 
-from importlib import import_module
 
 # Default paths for backward compatibility (will be overridden by user-provided paths)
 DEFAULT_TM_CKPT = None

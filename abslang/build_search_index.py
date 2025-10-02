@@ -28,32 +28,10 @@ def build_index_from_csv(
     tm_checkpoint_path,
     tm_config_path,
 ):
-    """
-    Build index from CSV file.
+    """Embed a CSV and build a FAISS index.
 
-    Parameters:
-    - csv_path: Path to CSV with sequences
-    - mode: 'paired', 'hc', or 'nb'
-    - id_column: Column name for IDs
-    - seq_column: Column name for sequences
-    - out_dir: Output directory
-    - batch_size: Batch size for embedding
-    - index_type: Type of index ('ivfpq', 'pq', 'flat')
-    - nlist: Number of clusters for IVF indices (auto-calculated if None)
-    - m: Number of subquantizers for PQ
-    - nbits: Number of bits per subquantizer
-    - save_distance: whether to compute and save pairwise distances
-    - write_index: whether to write the index file
-    - write_embeddings: whether to write the embeddings file
-    - write_sequences: whether to write the sequences file
-    - tm_checkpoint_path: Path to transformer model checkpoint (required)
-    - tm_config_path: Path to transformer model config JSON (required)
-    
-    Returns:
-        IndexArtifacts object
-    
-    Raises:
-        ValueError: If parameters are invalid
+    index_type: 'flat' | 'pq' | 'ivfpq'; PQ params auto-adjust if needed.
+    Saves index, optional embeddings/distances/seq_list, and artifacts.json.
     """
     # Validate index type
     if index_type not in ('ivfpq', 'pq', 'flat'):
@@ -118,56 +96,52 @@ def build_index_from_csv(
         if d % m != 0:
             # Auto-adjust m to be a divisor of d
             import math
+            import warnings
             divisors = [i for i in range(1, min(d, 64) + 1) if d % i == 0]
             old_m = m
             m = min(divisors, key=lambda x: abs(x - old_m))
-            print(f"Warning: Adjusted m from {old_m} to {m} to divide d={d}")
+            warnings.warn(f"Adjusted m from {old_m} to {m} to divide d={d}")
         faiss_idx = build_pq_flat_index(embs, m=m, nbits=nbits)
     else:  # ivfpq
         # Calculate nlist if not provided
         n_samples = len(seqs)
         if nlist is None:
             import math
+            import warnings
             nlist = min(4096, max(32, int(10 * math.sqrt(n_samples))))
-            print(f"Auto-calculated nlist={nlist} for {n_samples} samples")
+            warnings.warn(f"Auto-calculated nlist={nlist} for {n_samples} samples")
         
         # Validate PQ parameters
         if d % m != 0:
             import math
+            import warnings
             divisors = [i for i in range(1, min(d, 64) + 1) if d % i == 0]
             old_m = m
             m = min(divisors, key=lambda x: abs(x - old_m))
-            print(f"Warning: Adjusted m from {old_m} to {m} to divide d={d}")
+            warnings.warn(f"Adjusted m from {old_m} to {m} to divide d={d}")
         
         faiss_idx = build_ivfpq_index(embs, nlist=nlist, m=m, nbits=nbits)
     
     # Warn about expensive distance matrix
     if save_distance and len(seqs) > 10000:
-        print(f"Warning: Computing pairwise distances for {len(seqs)} sequences (O(n²) memory)")
+        import warnings
+        warnings.warn(f"Computing pairwise distances for {len(seqs)} sequences (O(n²) memory)")
     dist = pairwise_l2(embs) if save_distance else None
 
     art = IndexArtifacts(faiss_idx, embs, dist, seq_items)
-    
-    # Save artifacts with appropriate naming
+
+    # Save artifacts via central adapter to avoid drift
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
-    
-    if write_index:
-        index_path = out / f"index.{index_type}"
-        adapter.save_faiss_index(art.faiss_index, index_path)
-    
-    if write_embeddings:
-        adapter.save_embeddings(art.embeddings, out / "embeddings.pt")
-    
-    if save_distance and art.distance_matrix is not None:
-        adapter.save_distance_matrix(art.distance_matrix, out / "dist_mat.csv")
-    
-    if write_sequences and art.sequence_list is not None:
-        # Save as pretty-printed JSON
-        seq_path = out / "seq_list.json"
-        import json
-        with open(seq_path, 'w') as f:
-            json.dump(art.sequence_list, f, indent=2)
+    adapter.dump_artifacts(
+        art,
+        out_dir=out,
+        write_index=write_index,
+        write_embeddings=write_embeddings,
+        write_distance=save_distance,
+        write_sequences=write_sequences,
+        index_type=index_type,
+    )
     
     # Save metadata about the index
     metadata = {

@@ -2,11 +2,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
-import numpy as np
 import numpy.typing as npt
-import pandas as pd
 import torch
-from lightning import Trainer
 from lightning.pytorch import LightningModule, Trainer
 from torch.utils.data import DataLoader
 from transformers import (

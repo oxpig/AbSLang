@@ -10,7 +10,6 @@ Key features:
 - CPU-optimized transformer architecture
 - Multi-head attention pooling for variable sequence lengths
 - Float32 outputs compatible with FAISS
-- Optional training dependencies for inference-only use
 """
 
 import json
@@ -18,34 +17,10 @@ import inspect
 import math
 from dataclasses import dataclass, asdict
 from typing import Optional
-import numpy as np
 
 import torch
 from torch import nn
 import torch.nn.functional as F
-
-# Optional imports for training/logging (not needed for inference)
-try:
-    import wandb
-    from pytorch_lightning.loggers import WandbLogger
-    import pytorch_lightning as pl
-    from scipy.stats import pearsonr
-    import matplotlib.pyplot as plt
-    HAS_TRAINING_DEPS = True
-except ImportError:
-    HAS_TRAINING_DEPS = False
-    # Create dummy classes for compatibility
-    class pl:
-        class LightningModule:
-            def __init__(self):
-                pass
-            def log(self, *args, **kwargs):
-                pass
-            def save_hyperparameters(self):
-                pass
-        class loggers:
-            class WandbLogger:
-                pass
 
 
 @dataclass
@@ -187,7 +162,7 @@ class MultiHeadAttentionPooling(nn.Module):
         return pooled.float()
 
 
-class StructuralEmbeddingModel(nn.Module if not HAS_TRAINING_DEPS else pl.LightningModule):
+class StructuralEmbeddingModel(nn.Module):
     """
     Transformer-based model for learning structural embeddings from protein sequences.
     
@@ -238,27 +213,6 @@ class StructuralEmbeddingModel(nn.Module if not HAS_TRAINING_DEPS else pl.Lightn
         
         # Learnable scaling parameter (initialized as float32)
         self.embedding_scale = nn.Parameter(torch.tensor(math.sqrt(28.0), dtype=torch.float32))
-        
-        # Loss functions
-        self.smooth_l1_loss = nn.SmoothL1Loss(reduction='mean')
-        
-        # Training state
-        self.validation_predictions = []
-        self.validation_targets = []
-        
-        # Loss configuration
-        self.loss_margin = 1.0
-        self.loss_threshold = 26.5
-        self.loss_mode = "distance"  # Options: "distance", "pearson", "contrastive"
-        
-        # Save hyperparameters if in training mode
-        if HAS_TRAINING_DEPS:
-            self.save_hyperparameters()
-    
-    def log(self, *args, **kwargs):
-        """Dummy log method for non-Lightning use"""
-        if HAS_TRAINING_DEPS and hasattr(super(), 'log'):
-            super().log(*args, **kwargs)
 
     @classmethod
     def load_from_checkpoint(cls, checkpoint_path: str, config: ModelConfig):
@@ -305,18 +259,20 @@ class StructuralEmbeddingModel(nn.Module if not HAS_TRAINING_DEPS else pl.Lightn
         
         # Filter compatible parameters
         filtered_state = {}
+        import warnings
         for key, value in checkpoint_state.items():
             if key in model_state:
                 if model_state[key].shape == value.shape:
                     filtered_state[key] = value
                 else:
-                    print(f"Shape mismatch for {key}: "
-                          f"checkpoint {value.shape} vs model {model_state[key].shape}")
+                    warnings.warn(
+                        f"Shape mismatch for {key}: checkpoint {value.shape} vs model {model_state[key].shape}"
+                    )
             else:
-                print(f"Parameter {key} not found in model")
+                warnings.warn(f"Parameter {key} not found in model")
         
         model.load_state_dict(filtered_state, strict=False)
-        print(f"Loaded {len(filtered_state)}/{len(model_state)} parameters from checkpoint")
+        warnings.warn(f"Loaded {len(filtered_state)}/{len(model_state)} parameters from checkpoint")
         
         return model
 
@@ -358,200 +314,6 @@ class StructuralEmbeddingModel(nn.Module if not HAS_TRAINING_DEPS else pl.Lightn
         embeddings = embeddings * self.embedding_scale
         
         return embeddings.float()
-
-    # === Loss Functions ===
-    
-    def euclidean_distance_loss(self, embeddings_1: torch.Tensor, 
-                               embeddings_2: torch.Tensor, 
-                               target_distances: torch.Tensor) -> torch.Tensor:
-        """Compute loss based on Euclidean distance between embeddings"""
-        pairwise_distance = nn.PairwiseDistance(p=2)
-        predicted_distances = pairwise_distance(embeddings_1, embeddings_2)
-        return self.smooth_l1_loss(predicted_distances, target_distances.float())
-
-    def dot_product_loss(self, embeddings_1: torch.Tensor, 
-                        embeddings_2: torch.Tensor, 
-                        target_scores: torch.Tensor) -> torch.Tensor:
-        """Compute loss based on dot product similarity"""
-        dot_products = torch.sum(embeddings_1 * embeddings_2, dim=1)
-        return self.smooth_l1_loss(dot_products, target_scores.float())
-
-    def pearson_correlation_loss(self, predictions: torch.Tensor, 
-                               targets: torch.Tensor) -> torch.Tensor:
-        """Compute loss based on Pearson correlation (1 - correlation)"""
-        if torch.isnan(predictions).any() or torch.isnan(targets).any():
-            return torch.tensor(1.0, device=predictions.device, requires_grad=True)
-            
-        pred_var = torch.var(predictions, unbiased=False)
-        target_var = torch.var(targets, unbiased=False)
-        
-        if pred_var == 0 or target_var == 0:
-            return torch.tensor(1.0, device=predictions.device, requires_grad=True)
-        
-        pred_centered = predictions - predictions.mean()
-        target_centered = targets - targets.mean()
-        
-        covariance = (pred_centered * target_centered).mean()
-        correlation = covariance / (torch.sqrt(pred_var * target_var) + 1e-8)
-        correlation = torch.clamp(correlation, min=-1.0, max=1.0)
-        
-        return 1 - correlation
-
-    def contrastive_loss(self, embeddings_1: torch.Tensor, 
-                        embeddings_2: torch.Tensor, 
-                        target_scores: torch.Tensor) -> torch.Tensor:
-        """Compute contrastive loss for similar/dissimilar pairs"""
-        dot_products = torch.sum(embeddings_1 * embeddings_2, dim=1)
-        is_similar = (target_scores >= self.loss_threshold).float()
-        
-        positive_loss = is_similar * 0.5 * (1.0 - dot_products).pow(2)
-        negative_loss = (1 - is_similar) * 0.5 * F.relu(dot_products - self.loss_margin).pow(2)
-        
-        return (positive_loss + negative_loss).mean()
-
-    # === Training Methods (only available with PyTorch Lightning) ===
-    
-    def training_step(self, batch, batch_idx):
-        """Training step for PyTorch Lightning"""
-        if not HAS_TRAINING_DEPS:
-            raise RuntimeError("Training dependencies not available")
-            
-        sequence_1, sequence_2, pad_mask_1, pad_mask_2, targets = batch
-        
-        embeddings_1 = self.forward(sequence_1, padding_mask=pad_mask_1)
-        embeddings_2 = self.forward(sequence_2, padding_mask=pad_mask_2)
-        
-        # Compute loss based on mode
-        if self.loss_mode == 'distance':
-            loss = self.euclidean_distance_loss(embeddings_1, embeddings_2, targets)
-            # Also compute Pearson loss for monitoring
-            pairwise_distance = nn.PairwiseDistance(p=2)
-            predicted_distances = pairwise_distance(embeddings_1, embeddings_2)
-            pearson_loss = self.pearson_correlation_loss(predicted_distances, targets.float())
-        elif self.loss_mode == 'pearson':
-            pairwise_distance = nn.PairwiseDistance(p=2)
-            predicted_distances = pairwise_distance(embeddings_1, embeddings_2)
-            loss = self.pearson_correlation_loss(predicted_distances, targets.float())
-            pearson_loss = loss
-        elif self.loss_mode == 'contrastive':
-            loss = self.contrastive_loss(embeddings_1, embeddings_2, targets)
-            dot_products = torch.sum(embeddings_1 * embeddings_2, dim=1)
-            pearson_loss = self.pearson_correlation_loss(dot_products, targets.float())
-        else:
-            raise ValueError(f"Unknown loss mode: {self.loss_mode}")
-
-        # Log metrics
-        with torch.no_grad():
-            correlation = 1 - pearson_loss.item()
-            self.log('train_loss', loss, sync_dist=True)
-            self.log('train_correlation', correlation, sync_dist=True)
-            self.log('train_pearson_loss', pearson_loss, sync_dist=True)
-
-        return loss
-
-    def validation_step(self, batch, batch_idx):
-        """Validation step for PyTorch Lightning"""
-        if not HAS_TRAINING_DEPS:
-            raise RuntimeError("Training dependencies not available")
-            
-        sequence_1, sequence_2, pad_mask_1, pad_mask_2, targets = batch
-        
-        embeddings_1 = self.forward(sequence_1, padding_mask=pad_mask_1)
-        embeddings_2 = self.forward(sequence_2, padding_mask=pad_mask_2)
-        
-        # Compute validation loss (always using Euclidean distance)
-        loss = self.euclidean_distance_loss(embeddings_1, embeddings_2, targets)
-        
-        # Compute predictions for correlation analysis
-        pairwise_distance = nn.PairwiseDistance(p=2)
-        predictions = pairwise_distance(embeddings_1, embeddings_2)
-        
-        self.log('val_loss', loss, sync_dist=True, prog_bar=True)
-        
-        # Store for epoch-end analysis
-        self.validation_predictions.append(predictions.detach())
-        self.validation_targets.append(targets.detach())
-
-        return {'val_loss': loss}
-
-    def on_validation_epoch_end(self):
-        """End of validation epoch processing"""
-        if not HAS_TRAINING_DEPS or len(self.validation_predictions) == 0:
-            return
-            
-        # Gather all predictions and targets
-        all_predictions = torch.cat(self.validation_predictions, dim=0)
-        all_targets = torch.cat(self.validation_targets, dim=0)
-        
-        # Handle distributed training
-        if torch.distributed.is_initialized():
-            world_size = torch.distributed.get_world_size()
-            pred_list = [torch.zeros_like(all_predictions) for _ in range(world_size)]
-            target_list = [torch.zeros_like(all_targets) for _ in range(world_size)]
-            
-            torch.distributed.all_gather(pred_list, all_predictions)
-            torch.distributed.all_gather(target_list, all_targets)
-            
-            all_predictions = torch.cat(pred_list, dim=0)
-            all_targets = torch.cat(target_list, dim=0)
-
-        # Convert to numpy for analysis
-        predictions_np = all_predictions.float().cpu().numpy()
-        targets_np = all_targets.float().cpu().numpy()
-        
-        # Remove NaN values
-        valid_mask = ~(np.isnan(predictions_np) | np.isnan(targets_np))
-        predictions_np = predictions_np[valid_mask]
-        targets_np = targets_np[valid_mask]
-        
-        if len(predictions_np) > 1 and not np.all(predictions_np == predictions_np[0]):
-            correlation, _ = pearsonr(predictions_np, targets_np)
-            
-            # Create validation plot
-            plt.clf()
-            fig = plt.figure(figsize=(6, 6))
-            plt.scatter(targets_np, predictions_np, alpha=0.5)
-            plt.ylim(0, 12)
-            plt.xlim(0, 12)
-            plt.xlabel('Ground Truth')
-            plt.ylabel('Predicted')
-            plt.title(f'Validation: Predicted vs Ground Truth (r={correlation:.3f})')
-            
-            # Log to wandb if available
-            if (self.logger is not None and 
-                isinstance(self.logger, pl.loggers.WandbLogger)):
-                self.logger.experiment.log({
-                    "validation_scatter_plot": wandb.Image(fig)
-                })
-            plt.close(fig)
-            
-            self.log('val_pearson_correlation', correlation, sync_dist=True, prog_bar=True)
-        else:
-            correlation = 0.0
-            self.log('val_pearson_correlation', correlation, sync_dist=True, prog_bar=True)
-        
-        # Clear validation data
-        self.validation_predictions = []
-        self.validation_targets = []
-
-    def configure_optimizers(self):
-        """Configure optimizers for PyTorch Lightning"""
-        if not HAS_TRAINING_DEPS:
-            raise RuntimeError("Training dependencies not available")
-            
-        optimizer = torch.optim.AdamW(
-            self.parameters(),
-            lr=self.config.lr0,
-            weight_decay=0.02
-        )
-        
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-            optimizer, 
-            T_max=10,
-            eta_min=self.config.lr0 * 0.1
-        )
-        
-        return [optimizer], [scheduler]
 
 
 # Legacy aliases for backward compatibility

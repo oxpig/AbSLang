@@ -128,20 +128,19 @@ def predict_cdr_rmsd(
     except Exception as e:
         raise RuntimeError(f"Failed to embed sequences: {e}")
     
-    # Calculate pairwise distance
-    # Handle different embedding dimensions from transformer vs language-model-only
+    # Calculate pairwise distance on 1D transformer embeddings
     emb1_dev = emb1.to(device_obj)
     emb2_dev = emb2.to(device_obj)
-    
-    # If embeddings are high-dimensional (language model output), use mean pooling
-    if emb1_dev.dim() > 1:
-        emb1_dev = emb1_dev.mean(dim=0)  # Mean pool over sequence length
-    if emb2_dev.dim() > 1:
-        emb2_dev = emb2_dev.mean(dim=0)  # Mean pool over sequence length
-        
-    # Ensure 1D tensors for PairwiseDistance
-    emb1_dev = emb1_dev.squeeze()
-    emb2_dev = emb2_dev.squeeze()
+    # Allow a harmless leading batch dim of 1
+    if emb1_dev.dim() == 2 and emb1_dev.size(0) == 1:
+        emb1_dev = emb1_dev.squeeze(0)
+    if emb2_dev.dim() == 2 and emb2_dev.size(0) == 1:
+        emb2_dev = emb2_dev.squeeze(0)
+    if emb1_dev.dim() != 1 or emb2_dev.dim() != 1:
+        raise RuntimeError(
+            f"Unexpected embedding shapes: emb1={tuple(emb1_dev.shape)}, emb2={tuple(emb2_dev.shape)}; "
+            "transformer should output 1D vectors per sequence"
+        )
     
     # Calculate L2 distance
     rmsd = torch.norm(emb1_dev - emb2_dev, p=2).item()
@@ -207,15 +206,17 @@ def predict_cdr_rmsd_batch(
         emb1 = cache[s1].to(device_obj)
         emb2 = cache[s2].to(device_obj)
         
-        # Handle different embedding dimensions
-        if emb1.dim() > 1:
-            emb1 = emb1.mean(dim=0)  # Mean pool over sequence length
-        if emb2.dim() > 1:
-            emb2 = emb2.mean(dim=0)  # Mean pool over sequence length
-            
-        # Ensure 1D tensors and calculate L2 distance
-        emb1 = emb1.squeeze()
-        emb2 = emb2.squeeze()
+        # Ensure 1D transformer embeddings (tolerate leading batch dim of 1)
+        if emb1.dim() == 2 and emb1.size(0) == 1:
+            emb1 = emb1.squeeze(0)
+        if emb2.dim() == 2 and emb2.size(0) == 1:
+            emb2 = emb2.squeeze(0)
+        if emb1.dim() != 1 or emb2.dim() != 1:
+            raise RuntimeError(
+                f"Unexpected embedding shapes: emb1={tuple(emb1.shape)}, emb2={tuple(emb2.shape)}; "
+                "transformer should output 1D vectors per sequence"
+            )
+        # Calculate L2 distance
         rmsd = torch.norm(emb1 - emb2, p=2).item()
         results.append(rmsd)
     
@@ -230,6 +231,8 @@ if __name__ == "__main__":
     ap.add_argument("--seq2-col", default="Seq2")
     ap.add_argument("--batch-size", type=int, default=128)
     ap.add_argument("--out", help="Destination CSV (default: <csv>_<mode>_pred.csv)")
+    ap.add_argument("--tm-checkpoint", required=True, dest="tm_checkpoint_path", help="Path to transformer checkpoint (.ckpt)")
+    ap.add_argument("--tm-config", required=True, dest="tm_config_path", help="Path to transformer config JSON")
     args = ap.parse_args()
 
     outfile = args.out
@@ -244,10 +247,18 @@ if __name__ == "__main__":
         seq2_col=args.seq2_col,
         batch_size=args.batch_size,
         out_path=outfile,
+        tm_checkpoint_path=args.tm_checkpoint_path,
+        tm_config_path=args.tm_config_path,
     )
 
     """
-    
-    python Large_RMSD_Inference.py /vols/opig/users/ewang/Training/ABB3_pdb_split/paired_test.csv --mode paired --out /vols/opig/users/ewang/Training/Predictions/paired_test_api.csv
-    
+    CLI usage example:
+
+    python -m abslang.large_rmsd_inference \
+        /vols/opig/users/ewang/Training/ABB3_pdb_split/paired_test.csv \
+        --mode paired \
+        --tm-checkpoint /path/to/checkpoint.ckpt \
+        --tm-config /path/to/params.json \
+        --out /vols/opig/users/ewang/Training/Predictions/paired_test_api.csv
+
     """

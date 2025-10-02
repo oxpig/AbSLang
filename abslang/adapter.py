@@ -52,8 +52,7 @@ def read_sequences_csv(path: str | Path, id_col: str, seq_col: str) -> List[Dict
     return [{"id": r[id_col], "sequence": r[seq_col]} for _, r in df.iterrows()]
 
 
-def load_stacked_embeddings(pt_path: str | Path, device="cpu") -> torch.Tensor:
-    return torch.load(pt_path, map_location=device)
+# Removed: load_stacked_embeddings (unused in current pipeline)
 
 
 #write
@@ -70,7 +69,8 @@ def save_distance_matrix(mat: np.ndarray, path: str | Path) -> None:
 
 
 def save_sequence_list(seq_list: List[Dict], path: str | Path) -> None:
-    Path(path).write_text(json.dumps(seq_list))
+    # Pretty-print for readability and consistency with build_search_index
+    Path(path).write_text(json.dumps(seq_list, indent=2))
 
 
 #together!!!

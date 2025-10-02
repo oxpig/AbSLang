@@ -36,7 +36,6 @@ import os
 import zlib
 from pathlib import Path
 from typing import Iterable, Tuple
-import re
 
 import faiss
 import numpy as np
@@ -228,6 +227,7 @@ def main():
 
     # Load models
     device = torch.device(args.device)
+    # Informative device print removed to reduce noise
     lm_emb, fallback_lm, trans_model, _ = load_mode(
         args.mode, device, tm_checkpoint_path=args.tm_checkpoint, tm_config_path=args.tm_config
     )

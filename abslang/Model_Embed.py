@@ -1,124 +1,12 @@
 import torch
-import pandas as pd
-import numpy as np
-from collections import defaultdict
-import os
-import itertools
-import sys
-from .embed_structure_model_cpu import trans_basic_block, trans_basic_block_Config
-from .model import PairedIgT5
-from tqdm import tqdm 
-import matplotlib.pyplot as plt
-import seaborn as sns
-import scipy.stats as stats
-import matplotlib.lines as mlines
-from torch.amp import autocast
-from esm.models.esmc import ESMC
+from tqdm import tqdm
 from esm.sdk.api import ESMProtein, LogitsConfig
-import os
 
 
-def model_embed_with_precomputed(sequences, lmembeddings, model, device):
-    """
-    Embeds a batch of sequences using precomputed embeddings and the provided model.
-
-    Args:
-        sequences (list): List of sequences to embed.
-        lmembeddings (dict): Dictionary of precomputed embeddings.
-        model (torch.nn.Module): Model to use for embedding.
-        device (torch.device): Device to run the model on.
-
-    Returns:
-        torch.Tensor: Batched embeddings for the input sequences.
-    """
-    embeddings_list = []
-    missing_sequences = []
-    for seq in sequences:
-        embedding = lmembeddings.get(seq)
-        if embedding is not None:
-            embeddings_list.append(embedding.to(device))
-        else:
-            missing_sequences.append(seq)
-            print(f"Sequence {seq} not found in precomputed embeddings.")
-
-    if not embeddings_list:
-        return torch.empty(0)
-
-    embedding_tensor = torch.stack(embeddings_list)
-
-    if len(embedding_tensor.shape) == 2:
-        embedding_tensor = embedding_tensor.unsqueeze(0)
-
-    batch_size, seq_len, _ = embedding_tensor.shape
-    padding = torch.zeros((batch_size, seq_len), dtype=torch.bool, device=device)
-
-    with torch.no_grad():
-        embedded_sequence = model(embedding_tensor, attention_mask=None, padding_mask=padding)
-
-    return embedded_sequence
-
-
-def process_paired_precomputed(data, sequence_embeddings, model, device, batch_size=32):
-    """
-    Processes paired sequences in batches using precomputed embeddings.
-
-    Args:
-        data (pd.DataFrame): DataFrame containing sequences in 'Sequence' column.
-        sequence_embeddings (dict): Dictionary of precomputed embeddings.
-        model (torch.nn.Module): Model to use for embedding.
-        device (torch.device): Device to run the model on.
-        batch_size (int): Batch size for processing.
-
-    Returns:
-        tuple: raw_sequences (list), embeddings (list of torch.Tensor)
-    """
-    raw_sequences = []
-    embeddings = []
-    all_sequences = data['Sequence'].tolist()
-
-    for i in tqdm(range(0, len(all_sequences), batch_size), desc="Processing batches"):
-        batch_sequences = all_sequences[i:i + batch_size]
-        batch_raw_sequences = []
-        batch_embeddings = []
-
-        valid_batch_sequences = []
-        for seq in batch_sequences:
-            if seq in sequence_embeddings:
-                valid_batch_sequences.append(seq)
-                batch_raw_sequences.append(seq)
-            else:
-                print(f"Sequence {seq} not found in precomputed embeddings. Skipping from precomputed batch.")
-
-        if valid_batch_sequences:
-            try:
-                batch_embedding_tensor = model_embed_with_precomputed(valid_batch_sequences, sequence_embeddings, model, device)
-                if not torch.is_tensor(batch_embedding_tensor) or batch_embedding_tensor.numel() == 0:
-                    print("Warning: model_embed_with_precomputed returned empty embeddings for batch.")
-                else:
-                    batch_embeddings.extend(list(batch_embedding_tensor))
-            except KeyError as e:
-                print(f"KeyError in batch processing: {e}")
-                print("Skipping batch.")
-                continue
-
-        raw_sequences.extend(batch_raw_sequences)
-        embeddings.extend(batch_embeddings)
-
-    return raw_sequences, embeddings
-
-def save_embeddings(embeddings, output_file):
-    """Saves embeddings to a numpy file."""
-    if embeddings is not None and len(embeddings) > 0:
-        if isinstance(embeddings[0], torch.Tensor):
-            embedding_matrix = torch.stack(embeddings).cpu().numpy().astype(np.float32)
-        else:
-            embedding_matrix = np.array(embeddings, dtype=np.float32)
-    else:
-        embedding_matrix = np.array([])
-
-    np.save(output_file, embedding_matrix)
-    print(f'saved as {output_file}')
-    return embedding_matrix
+# Removed unused legacy helpers:
+# - model_embed_with_precomputed
+# - process_paired_precomputed
+# - save_embeddings (use adapter.save_embeddings instead)
 
 def parse_paired_sequence(seq):
     """Parse paired sequence separated by '|' into heavy and light chains."""
@@ -233,21 +121,7 @@ def embed_with_fallback(sequences, model, fallback_lm, device, mode='paired', **
     return results
 
 def process_paired_precomputed_fallback(data, model, fallback_lm, device, mode="paired", batch_size=128, seq_column=None):
-    """
-    Processes sequences in batches using language model with transformer.
-
-    Args:
-        data (pd.DataFrame): DataFrame containing sequences.
-        model (torch.nn.Module): Transformer model for final embedding.
-        fallback_lm: Language model (IgT5 for paired, ESMC for hc/nb).
-        device (torch.device): Device to run the model on.
-        mode (str): Embedding mode ('paired', 'hc', 'nb').
-        batch_size (int): Batch size for processing.
-        seq_column (str): Column name for sequences (auto-detected if None).
-
-    Returns:
-        tuple: raw_sequences (list), embeddings (list of torch.Tensor)
-    """
+    """Batch embed sequences from a DataFrame using LM+transformer."""
     raw_sequences = []
     embeddings = []
     

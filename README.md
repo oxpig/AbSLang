@@ -115,6 +115,23 @@ rs = predict_cdr_rmsd_batch(
 )
 ```
 
+### CLI: Predict RMSD from CSV
+
+You can also run batch RMSD prediction from the command line using the CSV interface in `abslang.large_rmsd_inference`:
+
+```bash
+python -m abslang.large_rmsd_inference \
+  /path/to/pairs.csv \
+  --mode paired \
+  --seq1-col Seq1 \
+  --seq2-col Seq2 \
+  --tm-checkpoint /path/to/checkpoint.ckpt \
+  --tm-config /path/to/config.json \
+  --out /path/to/output.csv
+```
+
+CSV columns can be customized via `--seq1-col` and `--seq2-col`.
+
 ## Index Types
 
 - `flat`: Exact, large memory footprint, fast queries for small datasets.
