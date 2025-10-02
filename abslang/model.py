@@ -14,6 +14,16 @@ from transformers import (
     T5Tokenizer,
 )
 from transformers.tokenization_utils_base import BatchEncoding
+import os
+import logging as pylogging
+from transformers import logging as hf_logging
+
+# Suppress noisy logs/progress from Lightning and HF by default
+pylogging.getLogger("lightning").setLevel(pylogging.ERROR)
+pylogging.getLogger("lightning.pytorch").setLevel(pylogging.ERROR)
+hf_logging.set_verbosity_error()
+os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
+os.environ.setdefault("DISABLE_TQDM", "1")
 
 
 @dataclass
@@ -49,7 +59,15 @@ class ProtTrans:
         elif self.paired and self.model_type == "t5":
             self.seperator_token = "</s>"
 
-        self.trainer = Trainer(num_nodes=1, devices=1)
+        # Quiet Trainer: no loggers, no progress bar/summary/checkpointing
+        self.trainer = Trainer(
+            num_nodes=1,
+            devices=1,
+            logger=False,
+            enable_progress_bar=False,
+            enable_model_summary=False,
+            enable_checkpointing=False,
+        )
 
     def collate_fn(self, batch: list[str]) -> BatchEncoding:
         sequences = [list(seq) for seq in batch]
