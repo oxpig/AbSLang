@@ -1,17 +1,3 @@
-"""
-Structural Embedding Model for Protein Similarity Prediction
-
-This module implements a transformer-based model that takes pre-computed protein 
-sequence embeddings and generates structural embeddings that predict RMSD similarity
-between protein pairs. The model is designed to run efficiently on CPU and be 
-compatible with FAISS for similarity search.
-
-Key features:
-- CPU-optimized transformer architecture
-- Multi-head attention pooling for variable sequence lengths
-- Float32 outputs compatible with FAISS
-"""
-
 import json
 import inspect
 import math
@@ -25,36 +11,33 @@ import torch.nn.functional as F
 
 @dataclass
 class ModelConfig:
-    """Configuration class for the Structural Embedding Model"""
     
-    # Model architecture parameters
-    d_model: int = 1024                # Input embedding dimension
-    nhead: int = 16                    # Number of attention heads
-    num_layers: int = 8                # Number of transformer encoder layers
-    dim_feedforward: int = 2048        # Feedforward network dimension
-    out_dim: int = 128                 # Output embedding dimension
-    dropout: float = 0.05              # Dropout rate
-    activation: str = 'relu'           # Activation function
-    hidden_dim: int = 1024             # Attention pooling hidden dimension
-    batch_first: bool = True           # Batch first ordering
+    # placeholders
+    d_model: int = 1024                
+    nhead: int = 16                  
+    num_layers: int = 8               
+    dim_feedforward: int = 2048       
+    out_dim: int = 128                 
+    dropout: float = 0.05              
+    activation: str = 'relu'         
+    hidden_dim: int = 1024           
+    batch_first: bool = True         
     
     # Training parameters
-    lr0: float = 0.0001                # Initial learning rate
-    warmup_steps: int = 300            # LR warmup steps
+    lr0: float = 0.0001               
+    warmup_steps: int = 300          
     
-    # Legacy parameters (kept for compatibility)
+    # Not used
     conv_kernel_size: int = 5
     conv_padding: int = 1
     conv_out_channels: int = 2560
     
     def isolate(self, config_function):
-        """Extract only the parameters needed for a specific function"""
         specifics = inspect.signature(config_function).parameters
         my_specifics = {k: v for k, v in asdict(self).items() if k in specifics}
         return my_specifics
 
     def to_json(self, filename: str):
-        """Save configuration to JSON file"""
         config_dict = asdict(self)
         with open(filename, 'w') as f:
             json.dump(config_dict, f, indent=2)
@@ -67,15 +50,11 @@ class ModelConfig:
         return cls(**config_dict)
 
     def build(self):
-        """Build the model using this configuration"""
         return StructuralEmbeddingModel(self)
 
 
 class MultiHeadAttentionPooling(nn.Module):
-    """
-    Multi-head attention pooling layer that converts variable-length sequences
-    to fixed-size embeddings using standard PyTorch operations (CPU-compatible).
-    """
+
     
     def __init__(self, d_model: int, hidden_dim: int, num_heads: int, dropout: float = 0.1):
         super().__init__()
@@ -98,16 +77,6 @@ class MultiHeadAttentionPooling(nn.Module):
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, x: torch.Tensor, padding_mask: Optional[torch.Tensor] = None) -> torch.Tensor:
-        """
-        Forward pass of multi-head attention pooling.
-        
-        Args:
-            x: Input tensor of shape [batch_size, seq_len, d_model]
-            padding_mask: Boolean mask of shape [batch_size, seq_len] where True indicates padding
-            
-        Returns:
-            pooled: Output tensor of shape [batch_size, 1024]
-        """
         batch_size, seq_len, _ = x.shape
         
         # Ensure float32 for CPU compatibility
@@ -119,31 +88,26 @@ class MultiHeadAttentionPooling(nn.Module):
         keys = self.key_projection(x_normalized)
         values = self.value_projection(x_normalized)
         
-        # Reshape for multi-head attention: [batch_size, seq_len, num_heads, head_dim]
         queries = queries.view(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
         keys = keys.view(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
         values = values.view(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
         
-        # Scale queries
+        
         queries = queries * self.scaling
         
-        # Compute attention scores
+
         attention_scores = torch.matmul(queries, keys.transpose(-2, -1))
         
-        # Apply padding mask if provided
         if padding_mask is not None:
             # Expand mask for broadcasting: [batch_size, 1, 1, seq_len]
             mask_expanded = padding_mask.bool().unsqueeze(1).unsqueeze(2)
             attention_scores = attention_scores.masked_fill(mask_expanded, float('-inf'))
         
-        # Apply softmax and dropout
         attention_weights = F.softmax(attention_scores, dim=-1)
         attention_weights = self.dropout(attention_weights)
         
-        # Apply attention to values
         attended_values = torch.matmul(attention_weights, values)
         
-        # Reshape back: [batch_size, seq_len, hidden_dim]
         attended_values = attended_values.transpose(1, 2).contiguous()
         attended_values = attended_values.view(batch_size, seq_len, self.hidden_dim)
         
@@ -163,17 +127,7 @@ class MultiHeadAttentionPooling(nn.Module):
 
 
 class StructuralEmbeddingModel(nn.Module):
-    """
-    Transformer-based model for learning structural embeddings from protein sequences.
-    
-    The model takes pre-computed protein sequence embeddings and generates fixed-size
-    structural embeddings that can predict RMSD similarity between protein pairs.
-    
-    Architecture:
-    1. Transformer encoder with standard PyTorch implementation
-    2. Multi-head attention pooling to handle variable sequence lengths
-    3. MLP head for final embedding generation
-    """
+
     
     def __init__(self, config: ModelConfig):
         super().__init__()
@@ -193,7 +147,6 @@ class StructuralEmbeddingModel(nn.Module):
             num_layers=config.num_layers
         )
         
-        # Multi-head attention pooling for variable sequence lengths
         self.attention_pooling = MultiHeadAttentionPooling(
             d_model=config.d_model,
             hidden_dim=config.hidden_dim,
@@ -226,10 +179,8 @@ class StructuralEmbeddingModel(nn.Module):
         
         model = cls(config)
         
-        # Load checkpoint with weights_only=False to support full unpickling
         checkpoint = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
         
-        # Handle both Lightning and regular PyTorch checkpoints
         if "state_dict" in checkpoint:
             model.load_state_dict(checkpoint["state_dict"], strict=False)
         else:
@@ -279,17 +230,6 @@ class StructuralEmbeddingModel(nn.Module):
     def forward(self, sequences: torch.Tensor, 
                 attention_mask: Optional[torch.Tensor] = None, 
                 padding_mask: Optional[torch.Tensor] = None) -> torch.Tensor:
-        """
-        Forward pass of the model.
-        
-        Args:
-            sequences: Input sequences of shape [batch_size, seq_len, d_model]
-            attention_mask: Optional attention mask (unused in current implementation)
-            padding_mask: Boolean mask where True indicates padding positions
-            
-        Returns:
-            embeddings: Structural embeddings of shape [batch_size, out_dim] in float32
-        """
         # Get device and ensure float32
         device = next(self.parameters()).device
         sequences = sequences.to(device, torch.float32)
@@ -302,14 +242,11 @@ class StructuralEmbeddingModel(nn.Module):
             mask=attention_mask, 
             src_key_padding_mask=padding_mask
         )
-        
-        # Attention pooling to fixed size
         pooled_representation = self.attention_pooling(encoded_sequences, padding_mask)
         
         # Apply dropout
         pooled_representation = self.dropout(pooled_representation)
         
-        # Generate final embeddings
         embeddings = self.output_mlp(pooled_representation)
         embeddings = embeddings * self.embedding_scale
         
