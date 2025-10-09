@@ -1,5 +1,4 @@
 import torch
-from tqdm import tqdm
 from esm.sdk.api import ESMProtein, LogitsConfig
 
 
@@ -138,7 +137,7 @@ def process_paired_precomputed_fallback(data, model, fallback_lm, device, mode="
     
     all_sequences = data[seq_column].tolist()
 
-    for i in tqdm(range(0, len(all_sequences), batch_size), desc="Processing batches"):
+    for i in range(0, len(all_sequences), batch_size):
         batch_sequences = all_sequences[i:i + batch_size]
         batch_embeddings = embed_with_fallback(
             batch_sequences, 

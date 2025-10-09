@@ -122,12 +122,24 @@ class ProtTransEmbedder(LightningModule):
         self.weights_dir = weights_dir
         self.model_type = model_type
 
+        model_kwargs: dict = {}
+        if device_map is not None:
+            try:
+                import accelerate  # noqa: F401
+                model_kwargs["device_map"] = device_map
+                model_kwargs["low_cpu_mem_usage"] = True
+            except ImportError:
+                raise ImportError(
+                    "device_map is set but Accelerate is not installed. "
+                    "Install accelerate>=0.26.0 or set device_map=None."
+                )
+
         if model_type == "bert":
             self.model = BertModel.from_pretrained(
-                self.weights_dir, add_pooling_layer=False, device_map=device_map
+                self.weights_dir, add_pooling_layer=False, **model_kwargs
             )
         elif model_type == "t5":
-            self.model = T5EncoderModel.from_pretrained(self.weights_dir, device_map=device_map)
+            self.model = T5EncoderModel.from_pretrained(self.weights_dir, **model_kwargs)
 
         if self.model_type == "bert":
             self.seperator_token_id = 3

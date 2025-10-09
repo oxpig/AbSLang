@@ -2,7 +2,6 @@ import argparse
 from pathlib import Path
 import torch
 import pandas as pd
-from tqdm import tqdm
 from torch import nn
 from .model_embed import embed_with_fallback
 from .config import load_mode
@@ -32,7 +31,7 @@ def infer_rmsd(
     unique = list(set(df[seq1_col]).union(df[seq2_col]))
     cache: dict[str, torch.Tensor] = {}
 
-    for i in tqdm(range(0, len(unique), batch_size), desc="Embedding unique sequences"):
+    for i in range(0, len(unique), batch_size):
         batch = unique[i : i + batch_size]
         vecs = embed_with_fallback(
             sequences=batch,
@@ -164,7 +163,7 @@ def predict_cdr_rmsd_batch(
     unique_seqs = list(set(seq for pair in sequence_pairs for seq in pair))
     cache: dict[str, torch.Tensor] = {}
     
-    for i in tqdm(range(0, len(unique_seqs), batch_size), desc="Embedding unique sequences"):
+    for i in range(0, len(unique_seqs), batch_size):
         batch = unique_seqs[i : i + batch_size]
         vecs = embed_with_fallback(
             sequences=batch,

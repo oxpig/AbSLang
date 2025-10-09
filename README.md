@@ -14,26 +14,31 @@ Search for structurally similar antibodies (CDRs) from sequence.
 
 - Python 3.10
 
+This package also requires PyTorch. Please insteall PyTorch following these <a href="https://pytorch.org/get-started/locally/">instructions</a>.
+
 ### Environment Setup
 
-1. Clone the repository:
+
+1. Install the inference dependencies (CPU example):
+```bash
+conda install pandas numpy
+pip install transformers sentencepiece tokenizers lightning accelerate esm httpx
+```
+2. Install Faiss
+For CPU Faiss: 
+```bash
+conda install pytorch::faiss-cpu
+```
+
+For GPU Faiss you can instead run:
+```bash
+conda install pytorch::faiss-gpu
+```
+3. Clone the repository:
 ```bash
 git clone https://github.com/ericjidawang/AbSLang.git
 cd AbSLang
 ```
-
-2. Create the conda environment:
-```bash
-conda env create -f env.yml
-#for cpu compatible version
-conda env create -f cpu_env.yml
-```
-
-3. Activate the environment:
-```bash
-conda activate database
-```
-
 
 
 ## Start
