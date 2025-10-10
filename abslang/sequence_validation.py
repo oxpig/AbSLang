@@ -1,13 +1,4 @@
 from __future__ import annotations
-
-"""
-ANARCI-based sequence validation and Fv trimming utilities.
-
-Use only for query-time validation when searching or predicting RMSD.
-Paired sequences must be formatted as "Heavy|Light".
-Any light chain type (kappa/lambda) is accepted.
-"""
-
 from typing import List, Tuple
 
 from anarci import validate_sequence as _anarci_validate_sequence, anarci as _anarci
@@ -82,7 +73,6 @@ def _number_single_sequence(
 
 
 def _trim_to_fv(sequence: str, chain: str) -> str:
-    """Return the Fv-trimmed sequence string for a single chain (H or L)."""
     numbered = _number_single_sequence(sequence, chain, scheme="imgt")
     return "".join([aa for (_, aa) in numbered])
 
@@ -90,9 +80,6 @@ def _trim_to_fv(sequence: str, chain: str) -> str:
 def validate_and_trim(sequence: str, mode: str) -> str:
     """
     Validate input sequence(s) and trim to Fv for use in inference.
-
-    - mode='paired': expects 'Heavy|Light'; returns 'H_fv|L_fv'
-    - mode='hc' or 'nb': single heavy chain; returns 'H_fv'
     """
     mode = mode.lower()
     if mode == "paired":
