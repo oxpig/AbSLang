@@ -5,6 +5,7 @@ import pandas as pd
 from torch import nn
 from .model_embed import embed_with_fallback
 from .config import load_mode
+from .sequence_validation import validate_and_trim
 
 
 #data = pd.read_csv('/vols/opig/users/ewang/Training/ABB3_pdb_split/paired_test.csv')
@@ -31,17 +32,27 @@ def infer_rmsd(
     unique = list(set(df[seq1_col]).union(df[seq2_col]))
     cache: dict[str, torch.Tensor] = {}
 
-    for i in range(0, len(unique), batch_size):
-        batch = unique[i : i + batch_size]
+    # Validate and trim all unique sequences to Fv
+    trim_map: dict[str, str] = {s: validate_and_trim(s, mode) for s in unique}
+    # Embed unique trimmed sequences only
+    unique_trimmed = list({trim_map[s] for s in unique})
+
+    trimmed_emb_cache: dict[str, torch.Tensor] = {}
+    for i in range(0, len(unique_trimmed), batch_size):
+        batch_trim = unique_trimmed[i : i + batch_size]
         vecs = embed_with_fallback(
-            sequences=batch,
+            sequences=batch_trim,
             model=model,
             fallback_lm=fallback_model,
             device=device,
             mode=mode,
         )
-        for s, v in zip(batch, vecs):
-            cache[s] = v.cpu()
+        for s_trim, v in zip(batch_trim, vecs):
+            trimmed_emb_cache[s_trim] = v.cpu()
+
+    # Map embeddings back to original sequences
+    for s in unique:
+        cache[s] = trimmed_emb_cache[trim_map[s]]
 
     pdist = nn.PairwiseDistance(p=2)
     df["Predicted_RMSD"] = [
@@ -92,10 +103,14 @@ def predict_cdr_rmsd(
     except Exception as e:
         raise RuntimeError(f"Failed to load models: {e}")
     
+    # Validate and trim to Fv
+    seq1_t = validate_and_trim(seq1, mode)
+    seq2_t = validate_and_trim(seq2, mode)
+
     # Embed both sequences
     try:
         vecs = embed_with_fallback(
-            sequences=[seq1, seq2],
+            sequences=[seq1_t, seq2_t],
             model=model,
             fallback_lm=fallback_model,
             device=device_obj,
@@ -162,18 +177,27 @@ def predict_cdr_rmsd_batch(
     # Get unique sequences and build cache
     unique_seqs = list(set(seq for pair in sequence_pairs for seq in pair))
     cache: dict[str, torch.Tensor] = {}
-    
-    for i in range(0, len(unique_seqs), batch_size):
-        batch = unique_seqs[i : i + batch_size]
+
+    # Validate and trim all unique sequences
+    trim_map: dict[str, str] = {s: validate_and_trim(s, mode) for s in unique_seqs}
+    unique_trimmed = list({trim_map[s] for s in unique_seqs})
+
+    trimmed_emb_cache: dict[str, torch.Tensor] = {}
+    for i in range(0, len(unique_trimmed), batch_size):
+        batch_trim = unique_trimmed[i : i + batch_size]
         vecs = embed_with_fallback(
-            sequences=batch,
+            sequences=batch_trim,
             model=model,
             fallback_lm=fallback_model,
             device=device_obj,
             mode=mode,
         )
-        for s, v in zip(batch, vecs):
-            cache[s] = v.cpu()
+        for s_trim, v in zip(batch_trim, vecs):
+            trimmed_emb_cache[s_trim] = v.cpu()
+
+    # Map back to original
+    for s in unique_seqs:
+        cache[s] = trimmed_emb_cache[trim_map[s]].to("cpu")
     
     results = []
     for s1, s2 in sequence_pairs:

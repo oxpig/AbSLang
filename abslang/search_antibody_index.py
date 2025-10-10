@@ -8,6 +8,7 @@ import pandas as pd
 from .main_module import embed_sequences
 from .config import load_mode
 from .index_csv_with_ids import decode_id_to_path_row
+from .sequence_validation import validate_and_trim
 
 
 class FaissSearcher:
@@ -145,6 +146,9 @@ class FaissSearcher:
         return {"id": id_val, "sequence": seq_val}
 
     def search(self, query_sequence: str, k: int = 5) -> list[dict]:
+        # Validate and trim to Fv prior to embedding
+        query_sequence = validate_and_trim(query_sequence, self.mode)
+
         q_vec = embed_sequences(
             [query_sequence],
             model=self.trans_model,
@@ -196,6 +200,9 @@ class FaissSearcher:
         Returns:
             List of sequences within threshold, sorted by distance
         """
+        # Validate and trim query to Fv before embedding
+        query_sequence = validate_and_trim(query_sequence, self.mode)
+
         # Embed query sequence
         q_vec = embed_sequences(
             [query_sequence],
@@ -269,7 +276,6 @@ class FaissSearcher:
                     rank += 1
         
         return results 
-
 
 
 

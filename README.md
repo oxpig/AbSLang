@@ -24,6 +24,10 @@ conda install -y -c conda-forge pandas numpy
 pip install torch==2.4.0 torchvision==0.19.0
 
 pip install lightning transformers sentencepiece tokenizers accelerate httpx esm
+
+#ANARCI is used to validate sequences, can be installed using conda
+conda install -c bioconda anarci
+
 ```
 2. Install Faiss
 For CPU Faiss: 
