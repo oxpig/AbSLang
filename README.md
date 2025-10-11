@@ -82,7 +82,7 @@ from abslang.search_antibody_index import FaissSearcher
 searcher = FaissSearcher(
     faiss_index_file="index_out/index.pq",
     csv_file="/path/to/sequences.csv",  # corresponding CSV used to build the index
-    device="cpu",
+    seq_column = "column",
     mode="paired",
     tm_checkpoint_path="/path/to/checkpoint.ckpt",
     tm_config_path="/path/to/config.json",
@@ -94,11 +94,11 @@ query = "HeavyChain|LightChain"
 # Top‑k search (distances are Euclidean; FAISS returns L2 squared distance which is sqrt transformed)
 results = searcher.search(query, k=10) #configure the number of nearest matches returned. 
 
-# Threshold search
+# Retrieve candidate sequences below a set RMSD threshold. 
 results_thresh = searcher.search_by_threshold(
     query,
     threshold=2.0,     # Euclidean distance
-    max_k=100,         # candidates to retrieve once
+    max_k=100,         # candidates to retrieve at once, set higher for higher thresholds. 
     reembed=True,     # True:Returns exact distance
 )
 ```
@@ -126,23 +126,6 @@ rs = predict_cdr_rmsd_batch(
 )
 ```
 
-### CLI: Predict RMSD from CSV
-
-You can also run batch RMSD prediction from the command line using the CSV interface in `abslang.large_rmsd_inference`:
-
-```bash
-python -m abslang.large_rmsd_inference \
-  /path/to/pairs.csv \
-  --mode paired \
-  --seq1-col Seq1 \
-  --seq2-col Seq2 \
-  --tm-checkpoint /path/to/checkpoint.ckpt \
-  --tm-config /path/to/config.json \
-  --out /path/to/output.csv
-```
-
-CSV columns can be customized via `--seq1-col` and `--seq2-col`.
-
 ## Index Types
 
 - `flat`: Exact, large memory footprint, fast queries for small datasets.
@@ -155,5 +138,5 @@ PQ parameter validation:
 
 ## Configuration
 
-- AbSLang requires a checkpoint and a matching JSON config.
+- AbSLang requires a checkpoint and a corresponding JSON config.
 - `paired` mode uses IgT5 as the language model; `hc`/`nb` use ESMC (esmc_600m).
