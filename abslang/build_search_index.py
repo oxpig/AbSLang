@@ -162,6 +162,7 @@ def build_index_from_csv(
     
     return art
 
+
 '''
 artifacts = build_index_from_csv("/vols/opig/projects/ewang-HC_Search_Index/HC_Sequences.csv", id_column='PDB_file', seq_column='Sequence', save_distance=False)
 

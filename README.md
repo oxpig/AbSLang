@@ -11,19 +11,24 @@ Search for structurally similar antibodies (CDRs) from sequence.
 ## Installation
 
 ### Quick Install Dependencies
-Create environment and install all dependencies in one command:
+
+CPU-only dependencies install
 ```bash
 conda create -y -n abslang -c conda-forge python=3.10 && \
 conda activate abslang && \
 conda install -y -c conda-forge pandas numpy && \
-pip install torch==2.4.0 torchvision==0.19.0 && \
+pip install torch==2.4.0 torchvision==0.19.0 --index-url https://download.pytorch.org/whl/cpu && \
 pip install lightning transformers sentencepiece tokenizers accelerate httpx esm && \
 conda install -y -c conda-forge faiss-cpu && \
 conda install -y -c bioconda anarci
 ```
 
-To support search on gpu using faiss, replace `faiss-cpu` with `faiss-gpu`:
+To support search on gpu using faiss, use:
 ```bash
+#replace the torch install line with:
+pip install torch==2.4.0 torchvision==0.19.0
+
+#replace the faiss install with:
 conda install -y -c conda-forge faiss-gpu
 ```
 
@@ -66,7 +71,7 @@ pip install .
 
 ## Start
 
-### Build an Index from CSV
+### Build an Index From Scratch from CSV
 
 ```python
 from abslang.build_search_index import build_index_from_csv
@@ -92,7 +97,7 @@ CSV requirements:
   - `hc`/`nb`: sequences must not contain `|`.
 
 ### Search an Index
-
+From a pre-computed search index. 
 ```python
 from abslang.search_antibody_index import FaissSearcher
 
