@@ -10,42 +10,59 @@ Search for structurally similar antibodies (CDRs) from sequence.
 
 ## Installation
 
-### Prerequisites
-
-- Python 3.10
-
-### Environment Setup
-
-
-1. Install the core inference dependencies (CPU example):
+### Quick Install Dependencies
+Create environment and install all dependencies in one command:
 ```bash
-conda install -y -c conda-forge pandas numpy
+conda create -y -n abslang -c conda-forge python=3.10 && \
+conda activate abslang && \
+conda install -y -c conda-forge pandas numpy && \
+pip install torch==2.4.0 torchvision==0.19.0 && \
+pip install lightning transformers sentencepiece tokenizers accelerate httpx esm && \
+conda install -y -c conda-forge faiss-cpu && \
+conda install -y -c bioconda anarci
+```
 
+To support search on gpu using faiss, replace `faiss-cpu` with `faiss-gpu`:
+```bash
+conda install -y -c conda-forge faiss-gpu
+```
+
+### (Alternatively) Install Dependencies Step-by-step
+1. Create and activate conda environment:
+```bash
+conda create -n abslang -c conda-forge python=3.10
+conda activate abslang
+```
+
+2. Install core dependencies:
+```bash
+conda install -c conda-forge pandas numpy
 pip install torch==2.4.0 torchvision==0.19.0
-
 pip install lightning transformers sentencepiece tokenizers accelerate httpx esm
+```
 
-#ANARCI is used to validate sequences, can be installed using conda
+3. Install Faiss (CPU or GPU):
+```bash
+# For CPU:
+conda install -c conda-forge faiss-cpu
+
+# For GPU:
+conda install -c conda-forge faiss-gpu
+```
+
+4. Install ANARCI (for sequence validation and pre-filtering):
+```bash
 conda install -c bioconda anarci
-
-```
-2. Install Faiss
-For CPU Faiss: 
-```bash
-conda install pytorch::faiss-cpu
 ```
 
-For GPU Faiss you can instead run:
+### Instal the package
+
+Clone and install AbSLang:
 ```bash
-conda install pytorch::faiss-gpu
-```
-3. Clone the repository:
-```bash
-git clone https://github.com/ericjidawang/AbSLang.git
+git clone --branch documented git@github.com:ericjidawang/AbSLang.git
 cd AbSLang
 pip install .
 ```
-
 
 ## Start
 
