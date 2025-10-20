@@ -32,7 +32,7 @@ class ProtTrans:
     model_type: str
     paired: bool
     batch_size: int = 1
-    device_map: str = 'auto'
+    device_map: Optional[str] = None
     tokeniser: PreTrainedTokenizer = field(init=False)
     seperator_token: Optional[str] = field(init=False)
     trainer: Optional[Trainer] = field(init=False)
@@ -114,7 +114,7 @@ class ProtTransEmbedder(LightningModule):
         self,
         weights_dir: Path,
         model_type: str,
-        device_map: str,
+        device_map: Optional[str],
     ) -> None:
         super().__init__()
         if model_type not in ["bert", "t5"]:
