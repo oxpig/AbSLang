@@ -388,7 +388,7 @@ def search_heavy_oas(
     tm_checkpoint_path: str,
     tm_config_path: str,
     nprobe: Optional[int] = None,
-    workers: int = 4,
+    workers: int = 1,
     faiss_threads_per_worker: Optional[int] = None,
 ) -> List[Dict]:
     """
