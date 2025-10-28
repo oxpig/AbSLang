@@ -1,9 +1,17 @@
+from __future__ import annotations
+
+import heapq
+import json
+import os
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
+
 import faiss
 import numpy as np
-import json
-from pathlib import Path
-import torch
 import pandas as pd
+import torch
 
 from .main_module import embed_sequences
 from .config import load_mode
@@ -278,7 +286,215 @@ class FaissSearcher:
         return results 
 
 
+def pair_indices_and_meta(root: str | Path) -> List[Tuple[Path, Path, str]]:
+    """
+    Discover FAISS index files and their matching metadata JSON files.
+
+    Supports both "<name>_index.<ext>" ↔ "<name>_meta.json" and
+    "<name>.<ext>" ↔ "<name>.json" conventions. Returns tuples of
+    (index_path, meta_path, study_name).
+    """
+    root = Path(root)
+    index_exts = {".flat", ".pq", ".ivfpq"}
+    index_files = [p for p in root.iterdir() if p.is_file() and p.suffix in index_exts]
+    meta_lookup = {p.stem: p for p in root.glob("*.json")}
+
+    pairs: List[Tuple[Path, Path, str]] = []
+    for idx_path in index_files:
+        stem = idx_path.stem
+        base = stem[:-6] if stem.endswith("_index") else stem
+        candidate_keys = (f"{base}_meta", base)
+
+        meta_path: Optional[Path] = None
+        for key in candidate_keys:
+            meta_path = meta_lookup.get(key)
+            if meta_path is not None:
+                break
+        if meta_path is None:
+            fallback = root / f"{base}_meta.json"
+            if fallback.exists():
+                meta_path = fallback
+        if meta_path is not None:
+            pairs.append((idx_path, meta_path, base))
+    return pairs
 
 
+def embed_query_single_chain(
+    query: str,
+    *,
+    mode: str,
+    device: str,
+    tm_checkpoint_path: str,
+    tm_config_path: str,
+) -> np.ndarray:
+    """Validate, trim, and embed the query sequence once."""
+    dev = torch.device(device)
+    lm_emb, fallback_lm, trans_model, _ = load_mode(
+        mode,
+        dev,
+        tm_checkpoint_path=tm_checkpoint_path,
+        tm_config_path=tm_config_path,
+    )
+    trimmed = validate_and_trim(query, mode)
+    embedding = embed_sequences(
+        [trimmed],
+        model=trans_model,
+        device=dev,
+        lm_embeddings=lm_emb,
+        fallback_model=fallback_lm,
+        mode=mode,
+    )
+    return embedding.to(torch.float32).cpu().numpy()
 
+
+def _search_one_index(
+    idx_path: str,
+    per_index_k: int,
+    q_vec: np.ndarray,
+    faiss_threads: int,
+    nprobe: Optional[int],
+) -> Tuple[str, List[float], List[int]]:
+    """Search a single FAISS index, returning squared distances and labels."""
+    try:
+        faiss.omp_set_num_threads(int(faiss_threads))
+    except Exception:
+        pass
+
+    index = faiss.read_index(idx_path)
+    if nprobe is not None and hasattr(index, "nprobe"):
+        index.nprobe = int(nprobe)
+    if index.d != q_vec.shape[1]:
+        raise RuntimeError(f"Dimension mismatch for {idx_path}: index.d={index.d}, query_d={q_vec.shape[1]}")
+
+    distances, labels = index.search(q_vec, per_index_k)
+    return idx_path, distances[0].tolist(), [int(x) for x in labels[0]]
+
+
+@dataclass(order=True)
+class _HeapItem:
+    neg_dist2: float
+    label: int
+    index_path: str
+
+
+def search_heavy_oas(
+    directory: str | Path,
+    query: str,
+    *,
+    mode: str = "hc",
+    top_k: int = 5,
+    per_index_k: Optional[int] = None,
+    device: str = "cpu",
+    tm_checkpoint_path: str,
+    tm_config_path: str,
+    nprobe: Optional[int] = None,
+    workers: int = 4,
+    faiss_threads_per_worker: Optional[int] = None,
+) -> List[Dict]:
+    """
+    Global top-K search across many ID-mapped indices with minimal memory use.
+
+    Returns records sorted by ascending Euclidean distance with keys:
+    {'study', 'distance', 'id', 'sequence', 'source_csv', 'row_idx', 'packed_id'}.
+    """
+    directory = Path(directory)
+    pairs = pair_indices_and_meta(directory)
+    if not pairs:
+        raise RuntimeError(f"No (index, meta) pairs found in {directory}")
+
+    q_vec = embed_query_single_chain(
+        query,
+        mode=mode,
+        device=device,
+        tm_checkpoint_path=tm_checkpoint_path,
+        tm_config_path=tm_config_path,
+    )
+
+    per_index_k = int(per_index_k or max(top_k, 10))
+    cpu_cores = os.cpu_count() or 8
+    faiss_threads = faiss_threads_per_worker or max(1, cpu_cores // max(1, workers))
+
+    heap: List[_HeapItem] = []
+    meta_paths: Dict[str, Path] = {}
+    study_names: Dict[str, str] = {}
+
+    with ProcessPoolExecutor(max_workers=workers) as executor:
+        futures = []
+        for idx_path, meta_path, study in pairs:
+            idx_key = str(idx_path)
+            meta_paths[idx_key] = meta_path
+            study_names[idx_key] = study
+            futures.append(
+                executor.submit(
+                    _search_one_index,
+                    idx_key,
+                    per_index_k,
+                    q_vec,
+                    faiss_threads,
+                    nprobe,
+                )
+            )
+
+        for fut in as_completed(futures):
+            idx_path, dist2_list, labels = fut.result()
+            for dist2, label in zip(dist2_list, labels):
+                item = _HeapItem(neg_dist2=-float(dist2), label=int(label), index_path=idx_path)
+                if len(heap) < top_k:
+                    heapq.heappush(heap, item)
+                    continue
+                if item.neg_dist2 > heap[0].neg_dist2:
+                    heapq.heapreplace(heap, item)
+
+    best: List[Tuple[float, int, str]] = []
+    while heap:
+        item = heapq.heappop(heap)
+        best.append((-item.neg_dist2, item.label, item.index_path))
+    best.sort(key=lambda x: x[0])
+
+    grouped: Dict[Path, List[Tuple[int, int, str, float, Path]]] = {}
+    meta_cache: Dict[Path, dict] = {}
+    for dist2, label, idx_path in best:
+        meta_path = meta_paths[idx_path]
+        study = study_names[idx_path]
+        meta = meta_cache.get(meta_path)
+        if meta is None:
+            meta = json.loads(meta_path.read_text())
+            meta_cache[meta_path] = meta
+        csv_path_str, row_idx = decode_id_to_path_row(meta, label)
+        csv_path = Path(csv_path_str)
+        grouped.setdefault(csv_path, []).append(
+            (int(row_idx), int(label), study, float(dist2), meta_path)
+        )
+
+    results: List[Dict] = []
+    for csv_path, rows in grouped.items():
+        meta_path = rows[0][4]
+        meta = meta_cache.get(meta_path)
+        if meta is None:
+            meta = json.loads(meta_path.read_text())
+            meta_cache[meta_path] = meta
+        skiprows = int(meta.get("filters", {}).get("skiprows", 0) or 0)
+        seq_col = meta.get("seq_col", "sequence_alignment_aa")
+        id_col = meta.get("id_col")
+
+        usecols = [seq_col]
+        if id_col:
+            usecols.append(id_col)
+
+        df = pd.read_csv(csv_path, skiprows=skiprows, usecols=usecols)
+
+        for row_idx, label, study, dist2, _ in rows:
+            record = {
+                "study": study,
+                "distance": float(np.sqrt(dist2)),
+                "source_csv": str(csv_path),
+                "row_idx": row_idx,
+                "sequence": df.iloc[row_idx][seq_col] if seq_col in df.columns else None,
+                "id": df.iloc[row_idx][id_col] if id_col and id_col in df.columns else label,
+                "packed_id": label,
+            }
+            results.append(record)
+
+    results.sort(key=lambda r: r["distance"])
+    return results[:top_k]
 
