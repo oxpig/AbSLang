@@ -10,7 +10,7 @@ __version__ = "0.1.0"
 __author__ = "Eric Wang"
 
 # Core public API - stable entry points only
-from .search_antibody_index import FaissSearcher
+from .search_antibody_index import FaissSearcher, search_heavy_oas
 from .large_rmsd_inference import predict_cdr_rmsd, predict_cdr_rmsd_batch
 from .build_search_index import build_index_from_csv
 from .config import load_mode
@@ -22,6 +22,7 @@ __all__ = [
     
     # Main API - Search
     "FaissSearcher",
+    "search_heavy_oas",
     
     # Main API - RMSD Prediction
     "predict_cdr_rmsd",
