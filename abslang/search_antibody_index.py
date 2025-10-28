@@ -418,32 +418,51 @@ def search_heavy_oas(
     meta_paths: Dict[str, Path] = {}
     study_names: Dict[str, str] = {}
 
-    with ProcessPoolExecutor(max_workers=workers) as executor:
-        futures = []
+    if workers <= 1:
         for idx_path, meta_path, study in pairs:
             idx_key = str(idx_path)
             meta_paths[idx_key] = meta_path
             study_names[idx_key] = study
-            futures.append(
-                executor.submit(
-                    _search_one_index,
-                    idx_key,
-                    per_index_k,
-                    q_vec,
-                    faiss_threads,
-                    nprobe,
-                )
+            idx_key, dist2_list, labels = _search_one_index(
+                idx_key,
+                per_index_k,
+                q_vec,
+                faiss_threads,
+                nprobe,
             )
-
-        for fut in as_completed(futures):
-            idx_path, dist2_list, labels = fut.result()
             for dist2, label in zip(dist2_list, labels):
-                item = _HeapItem(neg_dist2=-float(dist2), label=int(label), index_path=idx_path)
+                item = _HeapItem(neg_dist2=-float(dist2), label=int(label), index_path=idx_key)
                 if len(heap) < top_k:
                     heapq.heappush(heap, item)
-                    continue
-                if item.neg_dist2 > heap[0].neg_dist2:
+                elif item.neg_dist2 > heap[0].neg_dist2:
                     heapq.heapreplace(heap, item)
+    else:
+        with ProcessPoolExecutor(max_workers=workers) as executor:
+            futures = []
+            for idx_path, meta_path, study in pairs:
+                idx_key = str(idx_path)
+                meta_paths[idx_key] = meta_path
+                study_names[idx_key] = study
+                futures.append(
+                    executor.submit(
+                        _search_one_index,
+                        idx_key,
+                        per_index_k,
+                        q_vec,
+                        faiss_threads,
+                        nprobe,
+                    )
+                )
+
+            for fut in as_completed(futures):
+                idx_path, dist2_list, labels = fut.result()
+                for dist2, label in zip(dist2_list, labels):
+                    item = _HeapItem(neg_dist2=-float(dist2), label=int(label), index_path=idx_path)
+                    if len(heap) < top_k:
+                        heapq.heappush(heap, item)
+                        continue
+                    if item.neg_dist2 > heap[0].neg_dist2:
+                        heapq.heapreplace(heap, item)
 
     best: List[Tuple[float, int, str]] = []
     while heap:
@@ -497,4 +516,3 @@ def search_heavy_oas(
 
     results.sort(key=lambda r: r["distance"])
     return results[:top_k]
-
