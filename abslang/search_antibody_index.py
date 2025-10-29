@@ -33,6 +33,7 @@ class FaissSearcher:
         idmap_meta_file: str | None = None,
         tm_checkpoint_path: str,
         tm_config_path: str,
+        path_prefix_map: Optional[Dict[str, str] | str | Path] = None,
     ):
         """FAISS-backed antibody similarity search.
 
@@ -49,6 +50,7 @@ class FaissSearcher:
         self.device = torch.device(device)
         self.mode = mode
         self._use_idmap = idmap_meta_file is not None
+        self._path_prefix_map = _normalize_prefix_map(path_prefix_map)
         
         # Load FAISS index
         try:
@@ -135,6 +137,7 @@ class FaissSearcher:
         """Decode an ID-mapped FAISS label into {'id', 'sequence'} using meta JSON."""
         assert self._idmap_meta is not None, "ID map metadata not loaded"
         csv_path, row_idx = decode_id_to_path_row(self._idmap_meta, packed_id)
+        csv_path = _remap_path(csv_path, self._path_prefix_map)
         if csv_path not in self._csv_cache:
             # Align with builder's skiprows if present
             df = pd.read_csv(csv_path, skiprows=self._skiprows)
@@ -390,6 +393,7 @@ def search_heavy_oas(
     nprobe: Optional[int] = None,
     workers: int = 1,
     faiss_threads_per_worker: Optional[int] = None,
+    path_prefix_map: Optional[Dict[str, str] | str | Path] = None,
 ) -> List[Dict]:
     """
     Global top-K search across many ID-mapped indices with minimal memory use.
@@ -401,6 +405,8 @@ def search_heavy_oas(
     pairs = pair_indices_and_meta(directory)
     if not pairs:
         raise RuntimeError(f"No (index, meta) pairs found in {directory}")
+
+    prefix_map = _normalize_prefix_map(path_prefix_map)
 
     q_vec = embed_query_single_chain(
         query,
@@ -480,7 +486,7 @@ def search_heavy_oas(
             meta = json.loads(meta_path.read_text())
             meta_cache[meta_path] = meta
         csv_path_str, row_idx = decode_id_to_path_row(meta, label)
-        csv_path = Path(csv_path_str)
+        csv_path = Path(_remap_path(csv_path_str, prefix_map))
         grouped.setdefault(csv_path, []).append(
             (int(row_idx), int(label), study, float(dist2), meta_path)
         )
@@ -500,7 +506,7 @@ def search_heavy_oas(
         if id_col:
             usecols.append(id_col)
 
-        df = pd.read_csv(csv_path, skiprows=skiprows, usecols=usecols)
+        df = pd.read_csv(str(csv_path), skiprows=skiprows, usecols=usecols)
 
         for row_idx, label, study, dist2, _ in rows:
             record = {
@@ -516,3 +522,28 @@ def search_heavy_oas(
 
     results.sort(key=lambda r: r["distance"])
     return results[:top_k]
+
+
+DEFAULT_SOURCE_PREFIX = Path("/vols/opig/datasets/oas")
+
+
+def _normalize_prefix_map(prefix_spec: Optional[Dict[str, str] | Dict[Path, Path] | str | Path]) -> Dict[Path, Path]:
+    if prefix_spec is None:
+        return {}
+    if isinstance(prefix_spec, (str, Path)):
+        return {DEFAULT_SOURCE_PREFIX: Path(prefix_spec)}
+    return {Path(k): Path(v) for k, v in prefix_spec.items()}
+
+
+def _remap_path(original: str | Path, prefix_map: Dict[Path, Path]) -> str:
+    """Rewrite an original source path using the first matching prefix map entry."""
+    if not prefix_map:
+        return str(original)
+    original_path = Path(original)
+    for src_prefix, dst_prefix in prefix_map.items():
+        try:
+            rel = original_path.relative_to(src_prefix)
+        except ValueError:
+            continue
+        return str(dst_prefix / rel)
+    return str(original_path)
