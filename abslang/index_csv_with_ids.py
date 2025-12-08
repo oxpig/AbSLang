@@ -219,7 +219,24 @@ def main():
 
     # Collect input CSVs
     if root.is_dir():
-        csv_paths = [p for p in sorted(root.iterdir()) if p.is_file() and (p.suffix.lower() == ".csv" or p.suffix.lower() == ".gz" or p.name.lower().endswith(".csv.gz"))]
+        csv_paths = [
+            p
+            for p in sorted(root.iterdir())
+            if p.is_file()
+            and (
+                p.suffix.lower() == ".csv"
+                or p.suffix.lower() == ".gz"
+                or p.name.lower().endswith(".csv.gz")
+            )
+        ]
+        # For heavy-chain mode, ignore files whose names suggest light chains
+        if args.mode == "hc":
+            before = len(csv_paths)
+            csv_paths = [p for p in csv_paths if "light" not in p.name.lower()]
+            if not csv_paths:
+                raise FileNotFoundError(f"No CSV files found in directory after excluding Light files: {root}")
+            if before != len(csv_paths):
+                print(f"Excluded {before - len(csv_paths)} Light file(s); indexing {len(csv_paths)} heavy file(s).")
         if not csv_paths:
             raise FileNotFoundError(f"No CSV files found in directory: {root}")
     else:

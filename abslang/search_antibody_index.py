@@ -298,7 +298,8 @@ def pair_indices_and_meta(root: str | Path) -> List[Tuple[Path, Path, str]]:
     (index_path, meta_path, study_name).
     """
     root = Path(root)
-    index_exts = {".flat", ".pq", ".ivfpq"}
+    # Allow additional FAISS suffixes (e.g., quantized SQ8 written as .faiss)
+    index_exts = {".flat", ".pq", ".ivfpq", ".faiss"}
     index_files = [p for p in root.iterdir() if p.is_file() and p.suffix in index_exts]
     meta_lookup = {p.stem: p for p in root.glob("*.json")}
 
@@ -306,7 +307,18 @@ def pair_indices_and_meta(root: str | Path) -> List[Tuple[Path, Path, str]]:
     for idx_path in index_files:
         stem = idx_path.stem
         base = stem[:-6] if stem.endswith("_index") else stem
-        candidate_keys = (f"{base}_meta", base)
+
+        # Build candidate base names to accommodate suffixes like "_index_sq8"
+        base_candidates = [base]
+        if "_index" in stem:
+            base_candidates.append(stem.split("_index", 1)[0])
+        for cand in list(base_candidates):
+            if cand.endswith("_sq8"):
+                base_candidates.append(cand[:-4])
+
+        candidate_keys = []
+        for cand in base_candidates:
+            candidate_keys.extend((f"{cand}_meta", cand))
 
         meta_path: Optional[Path] = None
         for key in candidate_keys:
@@ -314,9 +326,11 @@ def pair_indices_and_meta(root: str | Path) -> List[Tuple[Path, Path, str]]:
             if meta_path is not None:
                 break
         if meta_path is None:
-            fallback = root / f"{base}_meta.json"
-            if fallback.exists():
-                meta_path = fallback
+            for cand in base_candidates:
+                fallback = root / f"{cand}_meta.json"
+                if fallback.exists():
+                    meta_path = fallback
+                    break
         if meta_path is not None:
             pairs.append((idx_path, meta_path, base))
     return pairs
